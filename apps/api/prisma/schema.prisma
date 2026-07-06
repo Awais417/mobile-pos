@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  CASHIER
+}
+
+model Business {
+  id        String   @id @default(cuid())
+  name      String
+  currency  String   @default("PKR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlets Outlet[]
+  users   User[]
+  categories Category[]
+  products   Product[]
+}
+
+model Outlet {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  address    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  users    User[]
+
+  @@index([businessId])
+}
+
+model User {
+  id           String  @id @default(cuid())
+  businessId   String
+  outletId     String?
+  email        String
+  passwordHash String
+  fullName     String
+  role         Role    @default(CASHIER)
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  outlet        Outlet?        @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  refreshTokens RefreshToken[]
+
+  @@unique([businessId, email])
+  @@index([businessId])
+  @@index([outletId])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+model Category {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  businessId   String
+  categoryId   String?
+  name         String
+  sku          String
+  barcode      String?
+  costPrice    Decimal  @db.Decimal(12, 2)
+  salePrice    Decimal  @db.Decimal(12, 2)
+  stockQty     Int      @default(0)
+  reorderLevel Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, sku])
+  @@index([businessId])
+  @@index([categoryId])
+}

@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: pos_erp_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: posuser
+      POSTGRES_PASSWORD: pospassword
+      POSTGRES_DB: pos_erp
+    ports:
+      - '5432:5432'
+    volumes:
+      - pos_erp_data:/var/lib/postgresql/data
+
+volumes:
+  pos_erp_data:
