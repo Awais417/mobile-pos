@@ -1,0 +1,22 @@
+import { IsString, IsEmail, MinLength, IsIn } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class CreateStaffDto {
+  @ApiProperty({ example: 'Ali Cashier' })
+  @IsString()
+  @MinLength(1)
+  fullName!: string;
+
+  @ApiProperty({ example: 'ali@shop.com' })
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ example: 'password123' })
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
+  @ApiProperty({ example: 'CASHIER', enum: ['MANAGER', 'CASHIER'] })
+  @IsIn(['MANAGER', 'CASHIER'])
+  role!: 'MANAGER' | 'CASHIER';
+}

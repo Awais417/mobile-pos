@@ -33,6 +33,31 @@ export class ProductsService extends TenantScopedService {
       },
     });
   }
+  
+  async update(
+    businessId: string,
+    id: string,
+    dto: import('./dto/update-product.dto').UpdateProductDto,
+  ) {
+    this.assertTenant(businessId);
+    const product = await this.prisma.product.findFirst({
+      where: { id, businessId },
+    });
+    if (!product) {
+      throw new NotFoundException('Product not found.');
+    }
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        name: dto.name,
+        barcode: dto.barcode,
+        costPrice: dto.costPrice,
+        salePrice: dto.salePrice,
+        stockQty: dto.stockQty,
+        reorderLevel: dto.reorderLevel,
+      },
+    });
+  }
 
   async remove(businessId: string, id: string) {
     this.assertTenant(businessId);

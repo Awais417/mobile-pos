@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Delete,
+  Patch,
   Body,
   Param,
   UseGuards,
@@ -14,6 +15,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 @ApiTags('products')
 @ApiBearerAuth('access-token')
@@ -31,6 +33,16 @@ export class ProductsController {
   @Roles('ADMIN', 'MANAGER')
   create(@TenantId() businessId: string, @Body() dto: CreateProductDto) {
     return this.productsService.create(businessId, dto);
+  }
+
+  @Patch(':id')
+  @Roles('ADMIN', 'MANAGER')
+  update(
+    @TenantId() businessId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+  ) {
+    return this.productsService.update(businessId, id, dto);
   }
 
   @Delete(':id')

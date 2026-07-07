@@ -6,9 +6,12 @@ import { logout } from '@/lib/auth';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
+  { href: '/terminal', label: 'Terminal', icon: '🛒' },
   { href: '/products', label: 'Products', icon: '📦' },
+  { href: '/categories', label: 'Categories', icon: '🏷️' },
+  { href: '/sales', label: 'Sales', icon: '🧾' },
+  { href: '/staff', label: 'Staff', icon: '👥' },
 ];
-
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();

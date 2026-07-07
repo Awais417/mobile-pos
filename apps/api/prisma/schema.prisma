@@ -20,10 +20,11 @@ model Business {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  outlets Outlet[]
-  users   User[]
+  outlets    Outlet[]
+  users      User[]
   categories Category[]
   products   Product[]
+  sales      Sale[]
 }
 
 model Outlet {
@@ -74,6 +75,7 @@ model RefreshToken {
 
   @@index([userId])
 }
+
 model Category {
   id         String   @id @default(cuid())
   businessId String
@@ -109,4 +111,33 @@ model Product {
   @@unique([businessId, sku])
   @@index([businessId])
   @@index([categoryId])
+}
+
+model Sale {
+  id          String   @id @default(cuid())
+  businessId  String
+  outletId    String?
+  cashierId   String
+  totalAmount Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  items    SaleItem[]
+
+  @@index([businessId])
+  @@index([createdAt])
+}
+
+model SaleItem {
+  id          String  @id @default(cuid())
+  saleId      String
+  productId   String
+  productName String
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(12, 2)
+  lineTotal   Decimal @db.Decimal(12, 2)
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
 }
