@@ -92,21 +92,56 @@ export class SalesService extends TenantScopedService {
       include: { items: true },
     });
 
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
     let totalRevenue = 0;
-    const totalSales = sales.length;
     let totalItemsSold = 0;
+    let todayRevenue = 0;
+    let monthRevenue = 0;
+
+    const productIds = new Set<string>();
+    for (const sale of sales) {
+      for (const item of sale.items) {
+        productIds.add(item.productId);
+      }
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: Array.from(productIds) } },
+      select: { id: true, costPrice: true },
+    });
+    const costMap = new Map(products.map((p) => [p.id, Number(p.costPrice)]));
+
+    let totalProfit = 0;
 
     for (const sale of sales) {
-      totalRevenue += Number(sale.totalAmount);
+      const saleTotal = Number(sale.totalAmount);
+      totalRevenue += saleTotal;
+
+      const saleDate = new Date(sale.createdAt);
+      if (saleDate >= todayStart) todayRevenue += saleTotal;
+      if (saleDate >= monthStart) monthRevenue += saleTotal;
+
       for (const item of sale.items) {
         totalItemsSold += item.quantity;
+        const cost = costMap.get(item.productId) ?? 0;
+        const profit = (Number(item.unitPrice) - cost) * item.quantity;
+        totalProfit += profit;
       }
     }
 
     return {
-      totalSales,
+      totalSales: sales.length,
       totalRevenue: totalRevenue.toFixed(2),
+      totalProfit: totalProfit.toFixed(2),
       totalItemsSold,
+      todayRevenue: todayRevenue.toFixed(2),
+      monthRevenue: monthRevenue.toFixed(2),
     };
   }
 }

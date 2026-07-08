@@ -24,16 +24,34 @@ export default function DashboardPage() {
       color: 'bg-green-50 text-green-700',
     },
     {
+      label: 'Total Profit',
+      value: summary ? `Rs ${summary.totalProfit}` : '—',
+      icon: '📈',
+      color: 'bg-emerald-50 text-emerald-700',
+    },
+    {
+      label: "Today's Sales",
+      value: summary ? `Rs ${summary.todayRevenue}` : '—',
+      icon: '📅',
+      color: 'bg-blue-50 text-blue-700',
+    },
+    {
+      label: 'This Month',
+      value: summary ? `Rs ${summary.monthRevenue}` : '—',
+      icon: '🗓️',
+      color: 'bg-purple-50 text-purple-700',
+    },
+    {
       label: 'Total Sales',
       value: summary ? summary.totalSales : '—',
       icon: '🧾',
-      color: 'bg-blue-50 text-blue-700',
+      color: 'bg-amber-50 text-amber-700',
     },
     {
       label: 'Items Sold',
       value: summary ? summary.totalItemsSold : '—',
       icon: '📦',
-      color: 'bg-amber-50 text-amber-700',
+      color: 'bg-slate-50 text-slate-700',
     },
   ];
 
@@ -42,7 +60,7 @@ export default function DashboardPage() {
       <h1 className="mb-6 text-2xl font-bold text-gray-900">Dashboard</h1>
 
       {/* Report cards */}
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((c) => (
           <div
             key={c.label}
