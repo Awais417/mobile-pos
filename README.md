@@ -1,225 +1,104 @@
-# 🚀 CashFlow POS & ERP
+# POS + ERP System
 
-Enterprise-grade Multi-Tenant SaaS POS & ERP System for Cash & Carry Businesses.
+A production-grade, multi-tenant SaaS Point of Sale (POS) and ERP system built for cash & carry retail businesses.
 
-> Built with modern technologies following clean architecture, scalable design, and industry best practices.
+## Features
 
----
+- **Multi-tenant** — each business has isolated data
+- **Authentication** — JWT with access + refresh tokens, auto-refresh, role-based access (Admin / Manager / Cashier)
+- **Products & Inventory** — full CRUD, stock tracking, low-stock alerts, categories
+- **POS Billing** — cart-based checkout with real-time stock updates (atomic transactions)
+- **Receipts** — printable receipt after each sale
+- **Reports** — revenue, profit, today's sales, monthly sales
+- **Staff Management** — admins can add managers and cashiers
+- **Sales History** — full record of all transactions
 
-# 📌 Project Overview
+## Tech Stack
 
-CashFlow POS & ERP is a production-ready SaaS platform designed for wholesalers, cash & carry stores, supermarkets, and retail businesses.
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js (App Router), TypeScript, Tailwind CSS |
+| Backend | NestJS, TypeScript |
+| Database | PostgreSQL |
+| ORM | Prisma |
+| Auth | JWT, Argon2 |
+| Infrastructure | Docker (PostgreSQL) |
 
-The system supports:
+## Architecture
 
-- Multi-Tenant Architecture
-- Multiple Branches / Outlets
-- POS Billing
-- Inventory Management
-- Purchase Management
-- Customer Management
-- Supplier Management
-- Financial Reports
-- Dashboard & Analytics
-- Role-Based Access Control
-- Secure Authentication
+- **Monorepo** — `apps/api` (backend) and `apps/web` (frontend)
+- **Security** — rate limiting, Helmet, refresh token rotation with theft detection, tenant isolation
+- **Money handling** — Decimal precision (no floating-point errors)
+- **Transactions** — sales and stock updates are atomic
 
----
+## Getting Started
 
-# 🏗️ Repository Structure
+### Prerequisites
 
-```text
-pos-erp/
-│
-├── apps/
-│   ├── api/          # NestJS Backend
-│   └── web/          # Next.js Frontend
-│
-├── packages/         # Shared packages (future)
-│
-├── .gitignore
-├── README.md
-└── package.json
-```
+- Node.js (v18+)
+- Docker Desktop
 
----
+### 1. Start the database
 
-# ⚙️ Tech Stack
+From the project root:
 
-## Backend
+\`\`\`bash
+docker compose up -d
+\`\`\`
 
-- NestJS
-- TypeScript
-- PostgreSQL
-- Prisma ORM
-- JWT Authentication
-- Zod
-- Swagger
-- Helmet
-- Rate Limiting
+### 2. Backend setup
 
-## Frontend
-
-- Next.js
-- React
-- TypeScript
-- Tailwind CSS
-- ShadCN UI
-
----
-
-# ✨ Features
-
-## Authentication
-
-- Login
-- Logout
-- Refresh Token Rotation
-- JWT Authentication
-- Role-Based Access Control
-
-## Inventory
-
-- Categories
-- Products
-- Stock Management
-- Barcode Support
-- Low Stock Alerts
-
-## Sales
-
-- POS Billing
-- Invoice Generation
-- Returns
-- Discounts
-
-## Purchase
-
-- Purchase Orders
-- Suppliers
-- Goods Receiving
-
-## Reports
-
-- Sales Reports
-- Inventory Reports
-- Profit & Loss
-- Dashboard Analytics
-
----
-
-# 🛡️ Security
-
-- Helmet
-- Rate Limiting
-- Global Exception Filter
-- Environment Validation (Zod)
-- Refresh Token Rotation
-- Password Hashing
-- Secure HTTP Headers
-
----
-
-# 🚧 Current Progress
-
-## ✅ Backend
-
-- Environment Validation
-- Swagger
-- Prisma
-- PostgreSQL
-- Helmet
-- Rate Limiting
-- Global Exception Filter
-- Refresh Token Rotation
-- Logout
-- Authentication Foundation
-
-## 🚧 Frontend
-
-- Initial Setup
-- Dashboard Layout (In Progress)
-
----
-
-# 🚀 Getting Started
-
-## Clone Repository
-
-```bash
-git clone https://github.com/YOUR_USERNAME/cashflow.git
-```
-
-## Install Dependencies
-
-Backend
-
-```bash
+\`\`\`bash
 cd apps/api
 npm install
-```
+npx prisma migrate dev
+npm run dev
+\`\`\`
 
-Frontend
+Backend runs at `http://localhost:4000/api`
+API docs (Swagger) at `http://localhost:4000/api/docs`
 
-```bash
+### 3. Frontend setup
+
+\`\`\`bash
 cd apps/web
 npm install
-```
-
----
-
-# Backend
-
-```bash
-npm run start:dev
-```
-
-Swagger
-
-```text
-http://localhost:3000/api
-```
-
----
-
-# Frontend
-
-```bash
 npm run dev
-```
+\`\`\`
 
----
+Frontend runs at `http://localhost:3000`
 
-# Future Roadmap
+## Usage
 
-- Multi-Tenant SaaS
-- Warehouse Module
-- Accounting
-- CRM
-- HRM
-- AI Reports
-- AI Inventory Forecasting
-- Mobile Application
-- Docker
-- CI/CD
-- Kubernetes
+1. Open `http://localhost:3000`
+2. Register a new business (becomes Admin)
+3. Add products, categories, and staff
+4. Cashiers log in and use the POS Terminal to make sales
+5. View reports and sales history on the dashboard
 
----
+## User Roles
 
-# Engineering Principles
+| Role | Access |
+|------|--------|
+| **Admin** | Full access — products, staff, reports, billing |
+| **Manager** | Products, billing, reports |
+| **Cashier** | POS Terminal (billing) only |
 
-- SOLID Principles
-- Clean Architecture
-- Modular Design
-- DRY
-- KISS
-- Dependency Injection
-- Enterprise Standards
+## Project Structure
 
----
+\`\`\`
+pos-erp/
+├── docker-compose.yml
+├── apps/
+│   ├── api/          # NestJS backend
+│   │   ├── prisma/   # database schema & migrations
+│   │   └── src/      # modules: auth, products, sales, staff, etc.
+│   └── web/          # Next.js frontend
+│       └── src/
+│           ├── app/  # pages (login, dashboard, terminal, etc.)
+│           └── lib/  # API clients & helpers
+\`\`\`
 
-# License
+## License
 
-Private Repository
-
-© 2026 CashFlow POS & ERP. All Rights Reserved.
+Private project.

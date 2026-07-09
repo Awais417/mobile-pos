@@ -1,5 +1,4 @@
 import { apiClient } from './api-client';
-import { tokenStorage } from './token-storage';
 
 export interface SaleItemInput {
   productId: string;
@@ -8,6 +7,7 @@ export interface SaleItemInput {
 
 export interface SaleItem {
   id: string;
+  productId: string;
   productName: string;
   quantity: number;
   unitPrice: string;
@@ -21,15 +21,10 @@ export interface Sale {
   items: SaleItem[];
 }
 
-function authHeader() {
-  const token = tokenStorage.getAccessToken();
-  return { Authorization: `Bearer ${token}` };
-}
-
 export async function createSale(items: SaleItemInput[]): Promise<Sale> {
-  return apiClient.post<Sale>('/sales', { items }, { headers: authHeader() });
+  return apiClient.post<Sale>('/sales', { items });
 }
 
 export async function getSales(): Promise<Sale[]> {
-  return apiClient.get<Sale[]>('/sales', { headers: authHeader() });
+  return apiClient.get<Sale[]>('/sales');
 }

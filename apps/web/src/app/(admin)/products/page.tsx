@@ -13,7 +13,6 @@ import { getCategories, Category } from '@/lib/categories';
 const emptyForm = {
   name: '',
   sku: '',
-  barcode: '',
   costPrice: '',
   salePrice: '',
   stockQty: '',
@@ -31,6 +30,7 @@ export default function ProductsPage() {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState('');
+  const [search, setSearch] = useState('');
 
   async function loadData() {
     try {
@@ -60,7 +60,6 @@ export default function ProductsPage() {
     setForm({
       name: p.name,
       sku: p.sku,
-      barcode: p.barcode ?? '',
       costPrice: p.costPrice,
       salePrice: p.salePrice,
       stockQty: String(p.stockQty),
@@ -81,7 +80,6 @@ export default function ProductsPage() {
     try {
       const payload = {
         name: form.name,
-        barcode: form.barcode || undefined,
         costPrice: parseFloat(form.costPrice),
         salePrice: parseFloat(form.salePrice),
         stockQty: form.stockQty ? parseInt(form.stockQty) : 0,
@@ -121,9 +119,16 @@ export default function ProductsPage() {
     return categories.find((c) => c.id === id)?.name ?? '—';
   }
 
-  const filteredProducts = filterCategory
-    ? products.filter((p) => p.categoryId === filterCategory)
-    : products;
+  const filteredProducts = products.filter((p) => {
+    const matchCategory = filterCategory
+      ? p.categoryId === filterCategory
+      : true;
+    const q = search.trim().toLowerCase();
+    const matchSearch = q
+      ? p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+      : true;
+    return matchCategory && matchSearch;
+  });
 
   const lowStockCount = products.filter(isLowStock).length;
   const inputClass =
@@ -157,7 +162,7 @@ export default function ProductsPage() {
         <div className="mb-3 text-sm font-medium text-gray-700">
           {editingId ? 'Edit product' : 'Add new product'}
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <input
             value={form.name}
             onChange={(e) => updateField('name', e.target.value)}
@@ -172,12 +177,6 @@ export default function ProductsPage() {
             required
             disabled={!!editingId}
             className={`${inputClass} disabled:bg-gray-100`}
-          />
-          <input
-            value={form.barcode}
-            onChange={(e) => updateField('barcode', e.target.value)}
-            placeholder="Barcode (optional)"
-            className={inputClass}
           />
           <select
             value={form.categoryId}
@@ -244,10 +243,15 @@ export default function ProductsPage() {
         </div>
       </form>
 
-      {/* Category filter */}
-      {categories.length > 0 && (
-        <div className="mb-3 flex items-center gap-2">
-          <label className="text-sm text-gray-600">Filter by category:</label>
+      {/* Search + Filter */}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="🔍 Search by name or SKU..."
+          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+        />
+        {categories.length > 0 && (
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
@@ -260,8 +264,8 @@ export default function ProductsPage() {
               </option>
             ))}
           </select>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
