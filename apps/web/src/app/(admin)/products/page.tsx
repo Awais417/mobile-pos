@@ -13,6 +13,7 @@ import { getCategories, Category } from '@/lib/categories';
 const emptyForm = {
   name: '',
   sku: '',
+  barcode: '',
   costPrice: '',
   salePrice: '',
   stockQty: '',
@@ -58,13 +59,14 @@ export default function ProductsPage() {
   function startEdit(p: Product) {
     setEditingId(p.id);
     setForm({
-      name: p.name,
-      sku: p.sku,
-      costPrice: p.costPrice,
-      salePrice: p.salePrice,
-      stockQty: String(p.stockQty),
-      reorderLevel: String(p.reorderLevel),
-      categoryId: p.categoryId ?? '',
+      name: p.name || '',
+      sku: p.sku || '',
+      barcode: p.barcode || '',
+      costPrice: p.costPrice || '',
+      salePrice: p.salePrice || '',
+      stockQty: p.stockQty != null ? String(p.stockQty) : '',
+      reorderLevel: p.reorderLevel != null ? String(p.reorderLevel) : '',
+      categoryId: p.categoryId || '',
     });
   }
 
@@ -80,6 +82,7 @@ export default function ProductsPage() {
     try {
       const payload = {
         name: form.name,
+        barcode: form.barcode || undefined,
         costPrice: parseFloat(form.costPrice),
         salePrice: parseFloat(form.salePrice),
         stockQty: form.stockQty ? parseInt(form.stockQty) : 0,
@@ -125,7 +128,9 @@ export default function ProductsPage() {
       : true;
     const q = search.trim().toLowerCase();
     const matchSearch = q
-      ? p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+      ? p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        (p.barcode ?? '').toLowerCase().includes(q)
       : true;
     return matchCategory && matchSearch;
   });
@@ -162,7 +167,7 @@ export default function ProductsPage() {
         <div className="mb-3 text-sm font-medium text-gray-700">
           {editingId ? 'Edit product' : 'Add new product'}
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <input
             value={form.name}
             onChange={(e) => updateField('name', e.target.value)}
@@ -177,6 +182,12 @@ export default function ProductsPage() {
             required
             disabled={!!editingId}
             className={`${inputClass} disabled:bg-gray-100`}
+          />
+          <input
+            value={form.barcode}
+            onChange={(e) => updateField('barcode', e.target.value)}
+            placeholder="Barcode (for scanner)"
+            className={inputClass}
           />
           <select
             value={form.categoryId}
@@ -218,7 +229,7 @@ export default function ProductsPage() {
           <input
             value={form.reorderLevel}
             onChange={(e) => updateField('reorderLevel', e.target.value)}
-            placeholder="Reorder at"
+            placeholder="Stock Alert At"
             type="number"
             className={inputClass}
           />
@@ -248,7 +259,7 @@ export default function ProductsPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Search by name or SKU..."
+          placeholder="🔍 Search by name, SKU or barcode..."
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
         />
         {categories.length > 0 && (
@@ -279,11 +290,12 @@ export default function ProductsPage() {
               <tr>
                 <th className="p-3">Name</th>
                 <th className="p-3">SKU</th>
+                <th className="p-3">Barcode</th>
                 <th className="p-3">Category</th>
                 <th className="p-3">Cost</th>
                 <th className="p-3">Sale</th>
                 <th className="p-3">Stock</th>
-                <th className="p-3">Reorder</th>
+                <th className="p-3">Stock Alert</th>
                 <th className="p-3"></th>
               </tr>
             </thead>
@@ -292,6 +304,7 @@ export default function ProductsPage() {
                 <tr key={p.id} className="border-t border-gray-100">
                   <td className="p-3 font-medium text-gray-900">{p.name}</td>
                   <td className="p-3 text-gray-600">{p.sku}</td>
+                  <td className="p-3 text-gray-600">{p.barcode || '—'}</td>
                   <td className="p-3 text-gray-600">
                     {categoryName(p.categoryId)}
                   </td>

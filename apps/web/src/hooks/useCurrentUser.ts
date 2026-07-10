@@ -3,25 +3,28 @@
 import { useEffect, useState } from 'react';
 import { getCurrentUser, CurrentUser } from '@/lib/auth';
 
-// Custom hook: user data fetch karta hai aur loading/error state deta hai.
-// Koi bhi page ise use kar sakta hai: const { user, loading } = useCurrentUser();
 export function useCurrentUser() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Component load hote hi user data lao
+    let cancelled = false;
+
     getCurrentUser()
       .then((data) => {
-        setUser(data);
+        if (!cancelled) setUser(data);
       })
       .catch(() => {
-        setError('Could not load user data.');
+        if (!cancelled) setError('Could not load user.');
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return { user, loading, error };

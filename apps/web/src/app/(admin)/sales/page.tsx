@@ -3,11 +3,72 @@
 import { useEffect, useState, Fragment } from 'react';
 import { getSales, Sale } from '@/lib/sales';
 
+type FilterKey = 'today' | 'week' | 'month' | 'all';
+
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This Week' },
+  { key: 'month', label: 'This Month' },
+  { key: 'all', label: 'All Time' },
+];
+
+function isInRange(dateStr: string, key: FilterKey): boolean {
+  const date = new Date(dateStr);
+  const now = new Date();
+
+  if (key === 'all') return true;
+
+  if (key === 'today') {
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate()
+    );
+  }
+
+  if (key === 'week') {
+    const weekStart = new Date(now);
+    const day = weekStart.getDay(); // 0 = Sunday
+    weekStart.setDate(weekStart.getDate() - day);
+    weekStart.setHours(0, 0, 0, 0);
+    return date >= weekStart;
+  }
+
+  if (key === 'month') {
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth()
+    );
+  }
+
+  return true;
+}
+
+function invoiceNumber(id: string): string {
+  return `#${id.slice(-6).toUpperCase()}`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function SalesHistoryPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterKey>('today');
 
   useEffect(() => {
     getSales()
@@ -16,85 +77,194 @@ export default function SalesHistoryPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function formatDate(iso: string): string {
-    return new Date(iso).toLocaleString();
-  }
-
   function toggleExpand(id: string) {
     setExpandedId((prev) => (prev === id ? null : id));
   }
 
+  const filteredSales = sales.filter((s) => isInRange(s.createdAt, filter));
+
+  const summary = filteredSales.reduce(
+    (acc, s) => {
+      acc.total += parseFloat(s.totalAmount);
+      acc.count += 1;
+      return acc;
+    },
+    { total: 0, count: 0 },
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Sales History</h1>
-
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-          {error}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-6">
+      <div className="mx-auto max-w-5xl">
+        {/* Header */}
+        <div className="mb-6 flex flex-col gap-1">
+          <h1 className="text-2xl font-bold text-slate-900">Sales History</h1>
+          <p className="text-sm text-slate-500">
+            View and track all completed transactions
+          </p>
         </div>
-      )}
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        {error && (
+          <div className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* Filters */}
+        <div className="mb-5 flex flex-wrap gap-2">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                filter === f.key
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Summary cards */}
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+              💰
+            </div>
+            <div className="text-xs text-slate-500">Total Amount</div>
+            <div className="mt-0.5 text-lg font-bold text-slate-900">
+              Rs {summary.total.toFixed(2)}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              🧾
+            </div>
+            <div className="text-xs text-slate-500">Number of Sales</div>
+            <div className="mt-0.5 text-lg font-bold text-slate-900">
+              {summary.count}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+              ✓
+            </div>
+            <div className="text-xs text-slate-500">Paid</div>
+            <div className="mt-0.5 text-lg font-bold text-slate-900">
+              {summary.count}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+              ⏳
+            </div>
+            <div className="text-xs text-slate-500">Unpaid / Partial</div>
+            <div className="mt-0.5 text-lg font-bold text-slate-900">0</div>
+          </div>
+        </div>
+
+        {/* Sales list */}
         {loading ? (
-          <p className="p-4 text-gray-500">Loading...</p>
-        ) : sales.length === 0 ? (
-          <p className="p-4 text-gray-500">No sales yet.</p>
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+            Loading...
+          </div>
+        ) : filteredSales.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-14 text-center">
+            <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-3xl">
+              🧾
+            </div>
+            <p className="text-sm font-medium text-slate-700">
+              No sales found
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              No transactions in this time range
+            </p>
+          </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-gray-600">
-              <tr>
-                <th className="p-3">Date</th>
-                <th className="p-3">Items</th>
-                <th className="p-3">Total</th>
-                <th className="p-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sales.map((sale) => (
-                <Fragment key={sale.id}>
-                  <tr className="border-t border-gray-100">
-                    <td className="p-3 text-gray-700">
-                      {formatDate(sale.createdAt)}
-                    </td>
-                    <td className="p-3 text-gray-600">
-                      {sale.items.length} item
-                      {sale.items.length > 1 ? 's' : ''}
-                    </td>
-                    <td className="p-3 font-medium text-gray-900">
-                      Rs {sale.totalAmount}
-                    </td>
-                    <td className="p-3">
+          <div className="space-y-3">
+            {filteredSales.map((sale) => {
+              const isOpen = expandedId === sale.id;
+              return (
+                <div
+                  key={sale.id}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md"
+                >
+                  {/* Card header */}
+                  <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 font-mono text-sm font-bold text-white shadow-sm">
+                        🧾
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-semibold text-slate-900">
+                            {invoiceNumber(sale.id)}
+                          </span>
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                            Paid
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          {formatDate(sale.createdAt)} · {formatTime(sale.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 sm:justify-end">
+                      <div className="text-right">
+                        <div className="text-[11px] text-slate-400">
+                          {sale.items.length} item
+                          {sale.items.length > 1 ? 's' : ''}
+                        </div>
+                        <div className="text-lg font-bold text-slate-900">
+                          Rs {sale.totalAmount}
+                        </div>
+                      </div>
                       <button
                         onClick={() => toggleExpand(sale.id)}
-                        className="text-sm text-blue-600 hover:underline"
+                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
                       >
-                        {expandedId === sale.id ? 'Hide' : 'View'}
+                        {isOpen ? 'Hide' : 'View'}
                       </button>
-                    </td>
-                  </tr>
-                  {expandedId === sale.id && (
-                    <tr className="bg-gray-50">
-                      <td colSpan={4} className="p-3">
-                        <div className="space-y-1">
+                    </div>
+                  </div>
+
+                  {/* Expanded items — receipt style */}
+                  {isOpen && (
+                    <div className="border-t border-dashed border-slate-200 bg-slate-50/60 p-4">
+                      <div className="mx-auto max-w-xs font-mono text-xs text-slate-700">
+                        <div className="mb-1 flex justify-between font-semibold text-slate-500">
+                          <span className="w-1/2">Item</span>
+                          <span className="w-1/4 text-center">Qty</span>
+                          <span className="w-1/4 text-right">Amount</span>
+                        </div>
+                        <div className="space-y-1 border-t border-dashed border-slate-300 pt-1">
                           {sale.items.map((item) => (
-                            <div
-                              key={item.id}
-                              className="flex justify-between text-sm text-gray-600"
-                            >
-                              <span>
-                                {item.productName} × {item.quantity}
+                            <div key={item.id} className="flex justify-between">
+                              <span className="w-1/2 truncate">
+                                {item.productName}
                               </span>
-                              <span>Rs {item.lineTotal}</span>
+                              <span className="w-1/4 text-center">
+                                {item.quantity}
+                              </span>
+                              <span className="w-1/4 text-right">
+                                {item.lineTotal}
+                              </span>
                             </div>
                           ))}
                         </div>
-                      </td>
-                    </tr>
+                        <div className="mt-2 flex justify-between border-t border-dashed border-slate-300 pt-2 text-sm font-bold text-slate-900">
+                          <span>TOTAL</span>
+                          <span>Rs {sale.totalAmount}</span>
+                        </div>
+                      </div>
+                    </div>
                   )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

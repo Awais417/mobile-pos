@@ -218,12 +218,12 @@ export default function TerminalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 to-slate-100">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-lg text-white shadow-md">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 text-lg text-white shadow-md">
               🛒
             </div>
             <div>
@@ -269,7 +269,7 @@ export default function TerminalPage() {
               />
               <button
                 type="submit"
-                className="rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 px-8 py-3.5 text-base font-semibold text-white shadow-md transition hover:shadow-lg active:scale-95"
+                className="rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 px-8 py-3.5 text-base font-semibold text-white shadow-md transition hover:shadow-lg active:scale-95"
               >
                 Add
               </button>
@@ -454,7 +454,7 @@ export default function TerminalPage() {
                   <button
                     onClick={handleCheckout}
                     disabled={checkingOut}
-                    className="w-full rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 py-3.5 text-base font-semibold text-white shadow-md transition hover:shadow-lg active:scale-[0.98] disabled:opacity-60"
+                    className="w-full rounded-xl bg-linear-to-br from-emerald-500 to-green-600 py-3.5 text-base font-semibold text-white shadow-md transition hover:shadow-lg active:scale-[0.98] disabled:opacity-60"
                   >
                     {checkingOut ? 'Processing...' : `Checkout · Rs ${total.toFixed(2)}`}
                   </button>
@@ -577,7 +577,7 @@ export default function TerminalPage() {
             <div className="mt-5 flex gap-2 print:hidden">
               <button
                 onClick={() => window.print()}
-                className="flex-1 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md"
+                className="flex-1 rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md"
               >
                 Print
               </button>
