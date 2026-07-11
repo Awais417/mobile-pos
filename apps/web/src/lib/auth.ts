@@ -16,11 +16,11 @@ interface AuthResponse {
   refreshToken: string;
 }
 
-export async function login(email: string, password: string): Promise<AuthResponse> {
-  const data = await apiClient.post<AuthResponse>('/auth/login', {
-    email,
-    password,
-  });
+export async function login(input: {
+  email: string;
+  password: string;
+}): Promise<AuthResponse> {
+  const data = await apiClient.post<AuthResponse>('/auth/login', input);
   tokenStorage.setTokens(data.accessToken, data.refreshToken);
   return data;
 }
@@ -40,7 +40,6 @@ export async function registerBusiness(input: {
 }
 
 export async function getCurrentUser(): Promise<CurrentUser> {
-  // apiClient.get khud token attach karta hai aur 401 pe auto-refresh karta hai
   return apiClient.get<CurrentUser>('/auth/me');
 }
 

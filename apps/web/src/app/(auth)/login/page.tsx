@@ -2,7 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { login } from '@/lib/auth';
+import { login, getCurrentUser } from '@/lib/auth';
 import { ApiRequestError } from '@/lib/api-client';
 
 export default function LoginPage() {
@@ -21,8 +21,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Hamara login function call karo (backend se baat karega)
-      const user = await login({ email, password });
+      // Login karo (tokens mil jayenge)
+      await login({ email, password });
+
+      // Ab current user ki details lao (role pata karne ke liye)
+      const user = await getCurrentUser();
 
       // Role ke hisaab se redirect (documentation ka rule)
       if (user.role === 'CASHIER') {

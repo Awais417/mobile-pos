@@ -13,6 +13,13 @@ enum Role {
   CASHIER
 }
 
+enum PaymentMethod {
+  CASH
+  CARD
+  ONLINE_WALLET
+  BANK_TRANSFER
+}
+
 model Business {
   id        String   @id @default(cuid())
   name      String
@@ -120,6 +127,14 @@ model Sale {
   cashierId   String
   totalAmount Decimal  @db.Decimal(12, 2)
   createdAt   DateTime @default(now())
+
+  // Payment details
+  paymentMethod   PaymentMethod
+  cashReceived    Decimal?       @db.Decimal(12, 2)
+  provider        String?
+  bankName        String?
+  cardLastFour    String?
+  referenceNumber String?
 
   business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   items    SaleItem[]

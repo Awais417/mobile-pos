@@ -3,13 +3,15 @@
 import { useEffect, useState, FormEvent, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getProducts, Product } from '@/lib/products';
-import { createSale, Sale } from '@/lib/sales';
+import { createSale, Sale, PaymentMethod } from '@/lib/sales';
 import { logout } from '@/lib/auth';
 
 interface CartItem {
   product: Product;
   quantity: number;
 }
+
+const WALLET_PROVIDERS = ['JazzCash', 'Easypaisa', 'Sadapay', 'NayaPay', 'Other'];
 
 export default function TerminalPage() {
   const router = useRouter();
@@ -25,6 +27,16 @@ export default function TerminalPage() {
   const [scanInput, setScanInput] = useState('');
   const [showProducts, setShowProducts] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
+
+  // Payment modal state
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
+  const [cashReceived, setCashReceived] = useState('');
+  const [provider, setProvider] = useState(WALLET_PROVIDERS[0]);
+  const [bankName, setBankName] = useState('');
+  const [cardLastFour, setCardLastFour] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   async function loadProducts() {
     try {
@@ -106,22 +118,80 @@ export default function TerminalPage() {
   );
   const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
 
-  async function handleCheckout() {
+  function openPaymentModal() {
     if (cart.length === 0) return;
+    setPaymentMethod('CASH');
+    setCashReceived('');
+    setProvider(WALLET_PROVIDERS[0]);
+    setBankName('');
+    setCardLastFour('');
+    setReferenceNumber('');
+    setPaymentError(null);
+    setShowPayment(true);
+  }
+
+  const cashReceivedNum = parseFloat(cashReceived) || 0;
+  const changeToReturn = cashReceivedNum - total;
+
+  async function handleConfirmPayment() {
+    setPaymentError(null);
+
+    // Frontend validation (backend bhi check karega)
+    if (paymentMethod === 'CASH') {
+      if (!cashReceived || cashReceivedNum < total) {
+        setPaymentError('Cash received must be at least the total amount.');
+        return;
+      }
+    }
+    if (paymentMethod === 'ONLINE_WALLET' && !referenceNumber.trim()) {
+      setPaymentError('Reference number is required for online wallet.');
+      return;
+    }
+    if (paymentMethod === 'BANK_TRANSFER') {
+      if (!bankName.trim()) {
+        setPaymentError('Bank name is required.');
+        return;
+      }
+      if (!referenceNumber.trim()) {
+        setPaymentError('Reference number is required.');
+        return;
+      }
+    }
+    if (paymentMethod === 'CARD') {
+      if (!/^\d{4}$/.test(cardLastFour)) {
+        setPaymentError('Card last 4 digits must be exactly 4 numbers.');
+        return;
+      }
+      if (!referenceNumber.trim()) {
+        setPaymentError('Reference number is required.');
+        return;
+      }
+    }
+
     setCheckingOut(true);
-    setMessage(null);
     try {
-      const sale = await createSale(
-        cart.map((c) => ({ productId: c.product.id, quantity: c.quantity })),
-      );
+      const sale = await createSale({
+        items: cart.map((c) => ({
+          productId: c.product.id,
+          quantity: c.quantity,
+        })),
+        paymentMethod,
+        cashReceived: paymentMethod === 'CASH' ? cashReceivedNum : undefined,
+        provider: paymentMethod === 'ONLINE_WALLET' ? provider : undefined,
+        bankName: paymentMethod === 'BANK_TRANSFER' ? bankName : undefined,
+        cardLastFour: paymentMethod === 'CARD' ? cardLastFour : undefined,
+        referenceNumber:
+          paymentMethod !== 'CASH' ? referenceNumber : undefined,
+      });
       setReceipt(sale);
       setEditingReceipt(false);
       setEditMessage(null);
       setCart([]);
       setLastAdded(null);
+      setShowPayment(false);
       await loadProducts();
     } catch (err) {
-      setMessage(
+      setPaymentError(
         err instanceof Error ? err.message : 'Checkout failed. Try again.',
       );
     } finally {
@@ -217,9 +287,15 @@ export default function TerminalPage() {
     router.replace('/login');
   }
 
+  const paymentMethods: { key: PaymentMethod; label: string; icon: string }[] = [
+    { key: 'CASH', label: 'Cash', icon: '💵' },
+    { key: 'CARD', label: 'Card', icon: '💳' },
+    { key: 'ONLINE_WALLET', label: 'Online Wallet', icon: '📱' },
+    { key: 'BANK_TRANSFER', label: 'Bank Transfer', icon: '🏦' },
+  ];
+
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 to-slate-100">
-      {/* Header */}
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
@@ -243,7 +319,6 @@ export default function TerminalPage() {
       <div className="mx-auto max-w-7xl grid grid-cols-1 gap-6 p-6 lg:grid-cols-5">
         {/* Left: Scan + Products */}
         <div className="lg:col-span-3">
-          {/* Scan card */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
@@ -293,7 +368,6 @@ export default function TerminalPage() {
             )}
           </div>
 
-          {/* Products toggle */}
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
             <button
               onClick={() => setShowProducts((v) => !v)}
@@ -356,7 +430,6 @@ export default function TerminalPage() {
         {/* Right: Cart */}
         <div className="lg:col-span-2">
           <div className="sticky top-24 rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {/* Cart header */}
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
               <h2 className="flex items-center gap-2 font-semibold text-slate-900">
                 🧾 Current Sale
@@ -369,14 +442,11 @@ export default function TerminalPage() {
             </div>
 
             {cart.length === 0 ? (
-              /* Empty state */
               <div className="flex flex-col items-center justify-center px-5 py-16 text-center">
                 <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-3xl">
                   🛒
                 </div>
-                <p className="text-sm font-medium text-slate-700">
-                  Cart is empty
-                </p>
+                <p className="text-sm font-medium text-slate-700">Cart is empty</p>
                 <p className="mt-1 text-xs text-slate-400">
                   Scan a product to start a sale
                 </p>
@@ -425,17 +495,13 @@ export default function TerminalPage() {
                           </button>
                         </div>
                         <span className="text-sm font-bold text-slate-900">
-                          Rs{' '}
-                          {(
-                            parseFloat(c.product.salePrice) * c.quantity
-                          ).toFixed(2)}
+                          Rs {(parseFloat(c.product.salePrice) * c.quantity).toFixed(2)}
                         </span>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                {/* Total + Checkout */}
                 <div className="border-t border-slate-100 p-4">
                   <div className="mb-3 space-y-1.5">
                     <div className="flex justify-between text-sm text-slate-500">
@@ -452,11 +518,11 @@ export default function TerminalPage() {
                     </div>
                   </div>
                   <button
-                    onClick={handleCheckout}
+                    onClick={openPaymentModal}
                     disabled={checkingOut}
                     className="w-full rounded-xl bg-linear-to-br from-emerald-500 to-green-600 py-3.5 text-base font-semibold text-white shadow-md transition hover:shadow-lg active:scale-[0.98] disabled:opacity-60"
                   >
-                    {checkingOut ? 'Processing...' : `Checkout · Rs ${total.toFixed(2)}`}
+                    Checkout · Rs {total.toFixed(2)}
                   </button>
                 </div>
               </>
@@ -464,6 +530,187 @@ export default function TerminalPage() {
           </div>
         </div>
       </div>
+
+      {/* Payment Modal */}
+      {showPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-1 text-lg font-bold text-slate-900">Payment</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Total: <span className="font-semibold text-slate-900">Rs {total.toFixed(2)}</span>
+            </p>
+
+            {/* Payment method buttons */}
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              {paymentMethods.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setPaymentMethod(m.key)}
+                  className={`flex flex-col items-center gap-1.5 rounded-xl border-2 py-4 transition ${
+                    paymentMethod === m.key
+                      ? 'border-blue-600 bg-blue-50 shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <span className="text-2xl">{m.icon}</span>
+                  <span
+                    className={`text-sm font-medium ${
+                      paymentMethod === m.key ? 'text-blue-700' : 'text-slate-600'
+                    }`}
+                  >
+                    {m.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Method-specific fields */}
+            <div className="space-y-3">
+              {paymentMethod === 'CASH' && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Cash Received
+                    </label>
+                    <input
+                      type="number"
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(e.target.value)}
+                      placeholder="0.00"
+                      autoFocus
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg font-semibold text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  {cashReceivedNum > 0 && (
+                    <div
+                      className={`rounded-xl p-3 text-sm font-semibold ${
+                        changeToReturn >= 0
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-red-50 text-red-700'
+                      }`}
+                    >
+                      {changeToReturn >= 0
+                        ? `Change to return: Rs ${changeToReturn.toFixed(2)}`
+                        : `Short by: Rs ${Math.abs(changeToReturn).toFixed(2)}`}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {paymentMethod === 'CARD' && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Card Last 4 Digits
+                    </label>
+                    <input
+                      value={cardLastFour}
+                      onChange={(e) =>
+                        setCardLastFour(e.target.value.replace(/\D/g, '').slice(0, 4))
+                      }
+                      placeholder="1234"
+                      maxLength={4}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Reference / Transaction Number
+                    </label>
+                    <input
+                      value={referenceNumber}
+                      onChange={(e) => setReferenceNumber(e.target.value)}
+                      placeholder="TXN-12345"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+
+              {paymentMethod === 'ONLINE_WALLET' && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Wallet Provider
+                    </label>
+                    <select
+                      value={provider}
+                      onChange={(e) => setProvider(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    >
+                      {WALLET_PROVIDERS.map((w) => (
+                        <option key={w} value={w}>
+                          {w}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Reference / Transaction ID
+                    </label>
+                    <input
+                      value={referenceNumber}
+                      onChange={(e) => setReferenceNumber(e.target.value)}
+                      placeholder="JC-893291"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+
+              {paymentMethod === 'BANK_TRANSFER' && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Bank Name
+                    </label>
+                    <input
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      placeholder="HBL"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Reference / Transaction ID
+                    </label>
+                    <input
+                      value={referenceNumber}
+                      onChange={(e) => setReferenceNumber(e.target.value)}
+                      placeholder="TXN-983211"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {paymentError && (
+              <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                {paymentError}
+              </div>
+            )}
+
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={() => setShowPayment(false)}
+                className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPayment}
+                disabled={checkingOut}
+                className="flex-1 rounded-xl bg-linear-to-br from-emerald-500 to-green-600 py-3 text-sm font-semibold text-white shadow-md transition hover:shadow-lg disabled:opacity-60"
+              >
+                {checkingOut ? 'Processing...' : 'Confirm Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Receipt Modal */}
       {receipt && (
@@ -475,9 +722,7 @@ export default function TerminalPage() {
               style={{ width: '280px' }}
             >
               <div className="mb-3 text-center">
-                <h2 className="text-base font-bold tracking-wide">
-                  SHOAIB MART
-                </h2>
+                <h2 className="text-base font-bold tracking-wide">SHOAIB MART</h2>
                 <p className="text-[10px] uppercase tracking-widest text-slate-500">
                   Cash &amp; Carry
                 </p>
@@ -496,10 +741,7 @@ export default function TerminalPage() {
 
               <div className="border-t border-dashed border-slate-400 py-2 text-[11px]">
                 {receipt.items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between py-1"
-                  >
+                  <div key={item.id} className="flex items-center justify-between py-1">
                     <span className="w-1/2 truncate">{item.productName}</span>
                     {editingReceipt ? (
                       <span className="flex w-1/4 items-center justify-center gap-1 print:hidden">
@@ -541,6 +783,51 @@ export default function TerminalPage() {
                 </div>
               </div>
 
+              {/* Payment details */}
+              <div className="mt-2 border-t border-dashed border-slate-400 pt-2 text-[10px] text-slate-600">
+                <div className="flex justify-between">
+                  <span>Payment</span>
+                  <span className="font-semibold">
+                    {receipt.paymentMethod === 'CASH' && 'Cash'}
+                    {receipt.paymentMethod === 'CARD' && 'Card'}
+                    {receipt.paymentMethod === 'ONLINE_WALLET' &&
+                      `${receipt.provider ?? 'Wallet'}`}
+                    {receipt.paymentMethod === 'BANK_TRANSFER' &&
+                      `Bank (${receipt.bankName ?? ''})`}
+                  </span>
+                </div>
+                {receipt.paymentMethod === 'CASH' && receipt.cashReceived && (
+                  <>
+                    <div className="flex justify-between">
+                      <span>Cash Received</span>
+                      <span>Rs {receipt.cashReceived}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Change</span>
+                      <span>
+                        Rs{' '}
+                        {(
+                          parseFloat(receipt.cashReceived) -
+                          parseFloat(receipt.totalAmount)
+                        ).toFixed(2)}
+                      </span>
+                    </div>
+                  </>
+                )}
+                {receipt.cardLastFour && (
+                  <div className="flex justify-between">
+                    <span>Card</span>
+                    <span>**** {receipt.cardLastFour}</span>
+                  </div>
+                )}
+                {receipt.referenceNumber && (
+                  <div className="flex justify-between">
+                    <span>Ref #</span>
+                    <span>{receipt.referenceNumber}</span>
+                  </div>
+                )}
+              </div>
+
               <p className="mt-3 text-center text-[10px] text-slate-500">
                 Thank you for shopping!
               </p>
@@ -553,9 +840,7 @@ export default function TerminalPage() {
                     {editMessage}
                   </div>
                 )}
-                <p className="mb-2 text-xs font-semibold text-slate-600">
-                  Add product
-                </p>
+                <p className="mb-2 text-xs font-semibold text-slate-600">Add product</p>
                 <div className="grid max-h-32 grid-cols-2 gap-2 overflow-y-auto">
                   {products.map((p) => (
                     <button

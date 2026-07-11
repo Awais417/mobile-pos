@@ -93,7 +93,7 @@ export default function SalesHistoryPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-6">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 to-slate-100 p-4 sm:p-6">
       <div className="mx-auto max-w-5xl">
         {/* Header */}
         <div className="mb-6 flex flex-col gap-1">
@@ -193,7 +193,7 @@ export default function SalesHistoryPage() {
                   {/* Card header */}
                   <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 font-mono text-sm font-bold text-white shadow-sm">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 font-mono text-sm font-bold text-white shadow-sm">
                         🧾
                       </div>
                       <div>

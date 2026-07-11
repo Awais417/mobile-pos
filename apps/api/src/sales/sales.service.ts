@@ -3,7 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantScopedService } from '../common/tenant/tenant-scoped.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -59,11 +59,29 @@ export class SalesService extends TenantScopedService {
         });
       }
 
+      // CASH payment ke liye — received amount total se kam nahi honi chahiye
+      if (dto.paymentMethod === PaymentMethod.CASH) {
+        if (dto.cashReceived === undefined) {
+          throw new BadRequestException('cashReceived is required for cash payments.');
+        }
+        if (dto.cashReceived < Number(totalAmount)) {
+          throw new BadRequestException(
+            `Cash received (Rs ${dto.cashReceived}) is less than total (Rs ${totalAmount}).`,
+          );
+        }
+      }
+
       const sale = await tx.sale.create({
         data: {
           businessId,
           cashierId,
           totalAmount,
+          paymentMethod: dto.paymentMethod,
+          cashReceived: dto.cashReceived ?? null,
+          provider: dto.provider ?? null,
+          bankName: dto.bankName ?? null,
+          cardLastFour: dto.cardLastFour ?? null,
+          referenceNumber: dto.referenceNumber ?? null,
           items: {
             create: saleItemsData,
           },
@@ -119,6 +137,14 @@ export class SalesService extends TenantScopedService {
 
     let totalProfit = 0;
 
+    // Payment method ke hisaab se totals
+    const paymentTotals: Record<string, { amount: number; count: number }> = {
+      CASH: { amount: 0, count: 0 },
+      CARD: { amount: 0, count: 0 },
+      ONLINE_WALLET: { amount: 0, count: 0 },
+      BANK_TRANSFER: { amount: 0, count: 0 },
+    };
+
     for (const sale of sales) {
       const saleTotal = Number(sale.totalAmount);
       totalRevenue += saleTotal;
@@ -126,6 +152,12 @@ export class SalesService extends TenantScopedService {
       const saleDate = new Date(sale.createdAt);
       if (saleDate >= todayStart) todayRevenue += saleTotal;
       if (saleDate >= monthStart) monthRevenue += saleTotal;
+
+      const methodKey = sale.paymentMethod as string;
+      if (paymentTotals[methodKey]) {
+        paymentTotals[methodKey].amount += saleTotal;
+        paymentTotals[methodKey].count += 1;
+      }
 
       for (const item of sale.items) {
         totalItemsSold += item.quantity;
@@ -142,6 +174,16 @@ export class SalesService extends TenantScopedService {
       totalItemsSold,
       todayRevenue: todayRevenue.toFixed(2),
       monthRevenue: monthRevenue.toFixed(2),
+      paymentTotals: {
+        cash: paymentTotals.CASH.amount.toFixed(2),
+        card: paymentTotals.CARD.amount.toFixed(2),
+        onlineWallet: paymentTotals.ONLINE_WALLET.amount.toFixed(2),
+        bankTransfer: paymentTotals.BANK_TRANSFER.amount.toFixed(2),
+        cashCount: paymentTotals.CASH.count,
+        cardCount: paymentTotals.CARD.count,
+        onlineWalletCount: paymentTotals.ONLINE_WALLET.count,
+        bankTransferCount: paymentTotals.BANK_TRANSFER.count,
+      },
     };
   }
 }
