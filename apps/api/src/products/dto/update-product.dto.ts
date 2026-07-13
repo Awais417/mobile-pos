@@ -14,6 +14,11 @@ export class UpdateProductDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsNumber()
   @Min(0)
   costPrice?: number;

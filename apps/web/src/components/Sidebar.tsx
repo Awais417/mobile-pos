@@ -3,23 +3,30 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { logout } from '@/lib/auth';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
-  { href: '/terminal', label: 'Terminal', icon: '🛒' },
-  { href: '/products', label: 'Products', icon: '📦' },
-  { href: '/categories', label: 'Categories', icon: '🏷️' },
-  { href: '/sales', label: 'Sales', icon: '🧾' },
-  { href: '/staff', label: 'Staff', icon: '👥' },
+  { href: '/dashboard', label: 'Dashboard', icon: '🏠', adminOnly: false },
+  { href: '/terminal', label: 'Terminal', icon: '🛒', adminOnly: false },
+  { href: '/products', label: 'Products', icon: '📦', adminOnly: false },
+  { href: '/categories', label: 'Categories', icon: '🏷️', adminOnly: false },
+  { href: '/sales', label: 'Sales', icon: '🧾', adminOnly: false },
+  { href: '/staff', label: 'Staff', icon: '👥', adminOnly: true },
 ];
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useCurrentUser();
 
   async function handleLogout() {
     await logout();
     router.replace('/login');
   }
+
+  const visibleItems = navItems.filter(
+    (item) => !item.adminOnly || user?.role === 'ADMIN',
+  );
 
   return (
     <aside className="flex w-56 flex-col border-r border-gray-200 bg-white">
@@ -30,7 +37,7 @@ export function Sidebar() {
 
       {/* Nav links */}
       <nav className="flex-1 space-y-1 p-3">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const active = pathname === item.href;
           return (
             <Link

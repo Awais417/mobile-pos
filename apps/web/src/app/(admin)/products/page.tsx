@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, useRef, FormEvent } from 'react';
 import {
   getProducts,
   createProduct,
@@ -20,6 +20,94 @@ const emptyForm = {
   reorderLevel: '',
   categoryId: '',
 };
+
+// Searchable category dropdown — type karke filter karein
+function CategoryPicker({
+  categories,
+  value,
+  onChange,
+  placeholder = 'Search category...',
+}: {
+  categories: Category[];
+  value: string;
+  onChange: (id: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const selectedName = categories.find((c) => c.id === value)?.name ?? '';
+
+  const filtered = categories.filter((c) =>
+    c.name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        value={open ? query : selectedName}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => {
+          setOpen(true);
+          setQuery('');
+        }}
+        placeholder={value ? selectedName : placeholder}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => {
+              onChange('');
+              setOpen(false);
+              setQuery('');
+            }}
+            className="block w-full px-3 py-2 text-left text-sm text-gray-500 hover:bg-gray-50"
+          >
+            No category
+          </button>
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-gray-400">
+              No match found
+            </div>
+          ) : (
+            filtered.map((c) => (
+              <button
+                type="button"
+                key={c.id}
+                onClick={() => {
+                  onChange(c.id);
+                  setOpen(false);
+                  setQuery('');
+                }}
+                className={`block w-full px-3 py-2 text-left text-sm hover:bg-blue-50 ${
+                  c.id === value
+                    ? 'bg-blue-50 font-medium text-blue-700'
+                    : 'text-gray-700'
+                }`}
+              >
+                {c.name}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -167,7 +255,7 @@ export default function ProductsPage() {
         <div className="mb-3 text-sm font-medium text-gray-700">
           {editingId ? 'Edit product' : 'Add new product'}
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <input
             value={form.name}
             onChange={(e) => updateField('name', e.target.value)}
@@ -183,24 +271,12 @@ export default function ProductsPage() {
             disabled={!!editingId}
             className={`${inputClass} disabled:bg-gray-100`}
           />
-          <input
-            value={form.barcode}
-            onChange={(e) => updateField('barcode', e.target.value)}
-            placeholder="Barcode (for scanner)"
-            className={inputClass}
-          />
-          <select
+          {/* Searchable category picker */}
+          <CategoryPicker
+            categories={categories}
             value={form.categoryId}
-            onChange={(e) => updateField('categoryId', e.target.value)}
-            className={inputClass}
-          >
-            <option value="">No category</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => updateField('categoryId', id)}
+          />
           <input
             value={form.costPrice}
             onChange={(e) => updateField('costPrice', e.target.value)}
@@ -263,18 +339,14 @@ export default function ProductsPage() {
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
         />
         {categories.length > 0 && (
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
-          >
-            <option value="">All categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <div className="w-56">
+            <CategoryPicker
+              categories={categories}
+              value={filterCategory}
+              onChange={setFilterCategory}
+              placeholder="Filter by category..."
+            />
+          </div>
         )}
       </div>
 
@@ -290,7 +362,6 @@ export default function ProductsPage() {
               <tr>
                 <th className="p-3">Name</th>
                 <th className="p-3">SKU</th>
-                <th className="p-3">Barcode</th>
                 <th className="p-3">Category</th>
                 <th className="p-3">Cost</th>
                 <th className="p-3">Sale</th>
@@ -304,7 +375,6 @@ export default function ProductsPage() {
                 <tr key={p.id} className="border-t border-gray-100">
                   <td className="p-3 font-medium text-gray-900">{p.name}</td>
                   <td className="p-3 text-gray-600">{p.sku}</td>
-                  <td className="p-3 text-gray-600">{p.barcode || '—'}</td>
                   <td className="p-3 text-gray-600">
                     {categoryName(p.categoryId)}
                   </td>
