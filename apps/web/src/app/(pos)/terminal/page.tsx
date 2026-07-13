@@ -26,6 +26,7 @@ export default function TerminalPage() {
   const [editMessage, setEditMessage] = useState<string | null>(null);
   const [scanInput, setScanInput] = useState('');
   const [showProducts, setShowProducts] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
   const scanRef = useRef<HTMLInputElement>(null);
 
   // Payment modal state
@@ -34,8 +35,6 @@ export default function TerminalPage() {
   const [cashReceived, setCashReceived] = useState('');
   const [provider, setProvider] = useState(WALLET_PROVIDERS[0]);
   const [bankName, setBankName] = useState('');
-  const [cardLastFour, setCardLastFour] = useState('');
-  const [referenceNumber, setReferenceNumber] = useState('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   async function loadProducts() {
@@ -118,14 +117,16 @@ export default function TerminalPage() {
   );
   const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
 
+  const filteredProducts = products.filter((p) =>
+    p.name.toLowerCase().includes(productSearch.trim().toLowerCase()),
+  );
+
   function openPaymentModal() {
     if (cart.length === 0) return;
     setPaymentMethod('CASH');
-    setCashReceived('');
+    setCashReceived(total.toFixed(2));
     setProvider(WALLET_PROVIDERS[0]);
     setBankName('');
-    setCardLastFour('');
-    setReferenceNumber('');
     setPaymentError(null);
     setShowPayment(true);
   }
@@ -136,34 +137,9 @@ export default function TerminalPage() {
   async function handleConfirmPayment() {
     setPaymentError(null);
 
-    // Frontend validation (backend bhi check karega)
     if (paymentMethod === 'CASH') {
       if (!cashReceived || cashReceivedNum < total) {
         setPaymentError('Cash received must be at least the total amount.');
-        return;
-      }
-    }
-    if (paymentMethod === 'ONLINE_WALLET' && !referenceNumber.trim()) {
-      setPaymentError('Reference number is required for online wallet.');
-      return;
-    }
-    if (paymentMethod === 'BANK_TRANSFER') {
-      if (!bankName.trim()) {
-        setPaymentError('Bank name is required.');
-        return;
-      }
-      if (!referenceNumber.trim()) {
-        setPaymentError('Reference number is required.');
-        return;
-      }
-    }
-    if (paymentMethod === 'CARD') {
-      if (!/^\d{4}$/.test(cardLastFour)) {
-        setPaymentError('Card last 4 digits must be exactly 4 numbers.');
-        return;
-      }
-      if (!referenceNumber.trim()) {
-        setPaymentError('Reference number is required.');
         return;
       }
     }
@@ -179,9 +155,6 @@ export default function TerminalPage() {
         cashReceived: paymentMethod === 'CASH' ? cashReceivedNum : undefined,
         provider: paymentMethod === 'ONLINE_WALLET' ? provider : undefined,
         bankName: paymentMethod === 'BANK_TRANSFER' ? bankName : undefined,
-        cardLastFour: paymentMethod === 'CARD' ? cardLastFour : undefined,
-        referenceNumber:
-          paymentMethod !== 'CASH' ? referenceNumber : undefined,
       });
       setReceipt(sale);
       setEditingReceipt(false);
@@ -317,7 +290,6 @@ export default function TerminalPage() {
       </header>
 
       <div className="mx-auto max-w-7xl grid grid-cols-1 gap-6 p-6 lg:grid-cols-5">
-        {/* Left: Scan + Products */}
         <div className="lg:col-span-3">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
@@ -382,11 +354,23 @@ export default function TerminalPage() {
 
             {showProducts && (
               <div className="border-t border-slate-100 p-4">
+                {/* Search by name */}
+                <div className="mb-3">
+                  <input
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="🔍 Search product by name..."
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+
                 {loading ? (
                   <p className="text-sm text-slate-500">Loading...</p>
+                ) : filteredProducts.length === 0 ? (
+                  <p className="text-sm text-slate-400">No products found.</p>
                 ) : (
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {products.map((p) => {
+                    {filteredProducts.map((p) => {
                       const out = p.stockQty === 0;
                       const low = !out && p.stockQty <= p.reorderLevel;
                       return (
@@ -427,7 +411,6 @@ export default function TerminalPage() {
           </div>
         </div>
 
-        {/* Right: Cart */}
         <div className="lg:col-span-2">
           <div className="sticky top-24 rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
@@ -537,10 +520,12 @@ export default function TerminalPage() {
           <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
             <h2 className="mb-1 text-lg font-bold text-slate-900">Payment</h2>
             <p className="mb-4 text-sm text-slate-500">
-              Total: <span className="font-semibold text-slate-900">Rs {total.toFixed(2)}</span>
+              Total Bill:{' '}
+              <span className="text-lg font-bold text-slate-900">
+                Rs {total.toFixed(2)}
+              </span>
             </p>
 
-            {/* Payment method buttons */}
             <div className="mb-4 grid grid-cols-2 gap-3">
               {paymentMethods.map((m) => (
                 <button
@@ -564,7 +549,6 @@ export default function TerminalPage() {
               ))}
             </div>
 
-            {/* Method-specific fields */}
             <div className="space-y-3">
               {paymentMethod === 'CASH' && (
                 <>
@@ -598,33 +582,12 @@ export default function TerminalPage() {
               )}
 
               {paymentMethod === 'CARD' && (
-                <>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
-                      Card Last 4 Digits
-                    </label>
-                    <input
-                      value={cardLastFour}
-                      onChange={(e) =>
-                        setCardLastFour(e.target.value.replace(/\D/g, '').slice(0, 4))
-                      }
-                      placeholder="1234"
-                      maxLength={4}
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
-                      Reference / Transaction Number
-                    </label>
-                    <input
-                      value={referenceNumber}
-                      onChange={(e) => setReferenceNumber(e.target.value)}
-                      placeholder="TXN-12345"
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
-                </>
+                <div className="rounded-xl bg-blue-50 p-4 text-center">
+                  <p className="text-sm text-slate-600">Amount to charge</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    Rs {total.toFixed(2)}
+                  </p>
+                </div>
               )}
 
               {paymentMethod === 'ONLINE_WALLET' && (
@@ -645,16 +608,11 @@ export default function TerminalPage() {
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
-                      Reference / Transaction ID
-                    </label>
-                    <input
-                      value={referenceNumber}
-                      onChange={(e) => setReferenceNumber(e.target.value)}
-                      placeholder="JC-893291"
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    />
+                  <div className="rounded-xl bg-purple-50 p-4 text-center">
+                    <p className="text-sm text-slate-600">Amount to receive</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      Rs {total.toFixed(2)}
+                    </p>
                   </div>
                 </>
               )}
@@ -672,16 +630,11 @@ export default function TerminalPage() {
                       className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                     />
                   </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
-                      Reference / Transaction ID
-                    </label>
-                    <input
-                      value={referenceNumber}
-                      onChange={(e) => setReferenceNumber(e.target.value)}
-                      placeholder="TXN-983211"
-                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    />
+                  <div className="rounded-xl bg-amber-50 p-4 text-center">
+                    <p className="text-sm text-slate-600">Amount to receive</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      Rs {total.toFixed(2)}
+                    </p>
                   </div>
                 </>
               )}
@@ -725,6 +678,9 @@ export default function TerminalPage() {
                 <h2 className="text-base font-bold tracking-wide">SHOAIB MART</h2>
                 <p className="text-[10px] uppercase tracking-widest text-slate-500">
                   Cash &amp; Carry
+                </p>
+                <p className="mt-1 text-[10px] font-semibold text-slate-700">
+                  Bill #{receipt.dailyInvoiceNumber}
                 </p>
                 <p className="mt-1 text-[10px] text-slate-500">
                   {new Date(receipt.createdAt).toLocaleString()}
@@ -783,7 +739,6 @@ export default function TerminalPage() {
                 </div>
               </div>
 
-              {/* Payment details */}
               <div className="mt-2 border-t border-dashed border-slate-400 pt-2 text-[10px] text-slate-600">
                 <div className="flex justify-between">
                   <span>Payment</span>
@@ -793,7 +748,7 @@ export default function TerminalPage() {
                     {receipt.paymentMethod === 'ONLINE_WALLET' &&
                       `${receipt.provider ?? 'Wallet'}`}
                     {receipt.paymentMethod === 'BANK_TRANSFER' &&
-                      `Bank (${receipt.bankName ?? ''})`}
+                      `Bank${receipt.bankName ? ` (${receipt.bankName})` : ''}`}
                   </span>
                 </div>
                 {receipt.paymentMethod === 'CASH' && receipt.cashReceived && (
@@ -813,18 +768,6 @@ export default function TerminalPage() {
                       </span>
                     </div>
                   </>
-                )}
-                {receipt.cardLastFour && (
-                  <div className="flex justify-between">
-                    <span>Card</span>
-                    <span>**** {receipt.cardLastFour}</span>
-                  </div>
-                )}
-                {receipt.referenceNumber && (
-                  <div className="flex justify-between">
-                    <span>Ref #</span>
-                    <span>{receipt.referenceNumber}</span>
-                  </div>
                 )}
               </div>
 

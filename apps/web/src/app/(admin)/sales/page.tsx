@@ -1,18 +1,28 @@
 'use client';
 
-import { useEffect, useState, Fragment } from 'react';
-import { getSales, Sale } from '@/lib/sales';
+import { useEffect, useState } from 'react';
+import { getSales, deleteSale, Sale, PaymentMethod } from '@/lib/sales';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
-type FilterKey = 'today' | 'week' | 'month' | 'all';
+type DateFilterKey = 'today' | 'week' | 'month' | 'all';
+type PaymentFilterKey = PaymentMethod | 'ALL';
 
-const FILTERS: { key: FilterKey; label: string }[] = [
+const DATE_FILTERS: { key: DateFilterKey; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'week', label: 'This Week' },
   { key: 'month', label: 'This Month' },
   { key: 'all', label: 'All Time' },
 ];
 
-function isInRange(dateStr: string, key: FilterKey): boolean {
+const PAYMENT_FILTERS: { key: PaymentFilterKey; label: string; icon: string }[] = [
+  { key: 'ALL', label: 'All Methods', icon: '💰' },
+  { key: 'CASH', label: 'Cash', icon: '💵' },
+  { key: 'CARD', label: 'Card', icon: '💳' },
+  { key: 'ONLINE_WALLET', label: 'Wallet', icon: '📱' },
+  { key: 'BANK_TRANSFER', label: 'Bank', icon: '🏦' },
+];
+
+function isInRange(dateStr: string, key: DateFilterKey): boolean {
   const date = new Date(dateStr);
   const now = new Date();
 
@@ -28,7 +38,7 @@ function isInRange(dateStr: string, key: FilterKey): boolean {
 
   if (key === 'week') {
     const weekStart = new Date(now);
-    const day = weekStart.getDay(); // 0 = Sunday
+    const day = weekStart.getDay();
     weekStart.setDate(weekStart.getDate() - day);
     weekStart.setHours(0, 0, 0, 0);
     return date >= weekStart;
@@ -42,10 +52,6 @@ function isInRange(dateStr: string, key: FilterKey): boolean {
   }
 
   return true;
-}
-
-function invoiceNumber(id: string): string {
-  return `#${id.slice(-6).toUpperCase()}`;
 }
 
 function formatDate(iso: string): string {
@@ -63,12 +69,29 @@ function formatTime(iso: string): string {
   });
 }
 
+function paymentLabel(sale: Sale): { text: string; icon: string } {
+  switch (sale.paymentMethod) {
+    case 'CASH':
+      return { text: 'Cash', icon: '💵' };
+    case 'CARD':
+      return { text: 'Card', icon: '💳' };
+    case 'ONLINE_WALLET':
+      return { text: sale.provider ?? 'Wallet', icon: '📱' };
+    case 'BANK_TRANSFER':
+      return { text: sale.bankName ?? 'Bank Transfer', icon: '🏦' };
+    default:
+      return { text: sale.paymentMethod, icon: '💰' };
+  }
+}
+
 export default function SalesHistoryPage() {
+  const { user } = useCurrentUser();
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterKey>('today');
+  const [dateFilter, setDateFilter] = useState<DateFilterKey>('today');
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilterKey>('ALL');
 
   useEffect(() => {
     getSales()
@@ -81,7 +104,24 @@ export default function SalesHistoryPage() {
     setExpandedId((prev) => (prev === id ? null : id));
   }
 
-  const filteredSales = sales.filter((s) => isInRange(s.createdAt, filter));
+  async function handleDelete(id: string) {
+    if (!confirm('Are you sure you want to delete this bill?')) {
+      return;
+    }
+    try {
+      await deleteSale(id);
+      setSales((prev) => prev.filter((s) => s.id !== id));
+    } catch {
+      alert('Could not delete this bill.');
+    }
+  }
+
+  const filteredSales = sales.filter((s) => {
+    const dateMatch = isInRange(s.createdAt, dateFilter);
+    const paymentMatch =
+      paymentFilter === 'ALL' || s.paymentMethod === paymentFilter;
+    return dateMatch && paymentMatch;
+  });
 
   const summary = filteredSales.reduce(
     (acc, s) => {
@@ -95,7 +135,6 @@ export default function SalesHistoryPage() {
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-50 to-slate-100 p-4 sm:p-6">
       <div className="mx-auto max-w-5xl">
-        {/* Header */}
         <div className="mb-6 flex flex-col gap-1">
           <h1 className="text-2xl font-bold text-slate-900">Sales History</h1>
           <p className="text-sm text-slate-500">
@@ -109,14 +148,13 @@ export default function SalesHistoryPage() {
           </div>
         )}
 
-        {/* Filters */}
-        <div className="mb-5 flex flex-wrap gap-2">
-          {FILTERS.map((f) => (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {DATE_FILTERS.map((f) => (
             <button
               key={f.key}
-              onClick={() => setFilter(f.key)}
+              onClick={() => setDateFilter(f.key)}
               className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-                filter === f.key
+                dateFilter === f.key
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
               }`}
@@ -126,7 +164,23 @@ export default function SalesHistoryPage() {
           ))}
         </div>
 
-        {/* Summary cards */}
+        <div className="mb-5 flex flex-wrap gap-2">
+          {PAYMENT_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setPaymentFilter(f.key)}
+              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-medium transition ${
+                paymentFilter === f.key
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <span>{f.icon}</span>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
@@ -164,7 +218,6 @@ export default function SalesHistoryPage() {
           </div>
         </div>
 
-        {/* Sales list */}
         {loading ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">
             Loading...
@@ -174,35 +227,37 @@ export default function SalesHistoryPage() {
             <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-3xl">
               🧾
             </div>
-            <p className="text-sm font-medium text-slate-700">
-              No sales found
-            </p>
+            <p className="text-sm font-medium text-slate-700">No sales found</p>
             <p className="mt-1 text-xs text-slate-400">
-              No transactions in this time range
+              No transactions match this filter
             </p>
           </div>
         ) : (
           <div className="space-y-3">
             {filteredSales.map((sale) => {
               const isOpen = expandedId === sale.id;
+              const pay = paymentLabel(sale);
               return (
                 <div
                   key={sale.id}
                   className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md"
                 >
-                  {/* Card header */}
                   <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 font-mono text-sm font-bold text-white shadow-sm">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 text-lg text-white shadow-sm">
                         🧾
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-sm font-semibold text-slate-900">
-                            {invoiceNumber(sale.id)}
+                            Bill #{sale.dailyInvoiceNumber}
                           </span>
                           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
                             Paid
+                          </span>
+                          <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                            <span>{pay.icon}</span>
+                            {pay.text}
                           </span>
                         </div>
                         <div className="mt-0.5 text-xs text-slate-500">
@@ -211,7 +266,7 @@ export default function SalesHistoryPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-4 sm:justify-end">
+                    <div className="flex items-center justify-between gap-3 sm:justify-end">
                       <div className="text-right">
                         <div className="text-[11px] text-slate-400">
                           {sale.items.length} item
@@ -221,16 +276,25 @@ export default function SalesHistoryPage() {
                           Rs {sale.totalAmount}
                         </div>
                       </div>
-                      <button
-                        onClick={() => toggleExpand(sale.id)}
-                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-                      >
-                        {isOpen ? 'Hide' : 'View'}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => toggleExpand(sale.id)}
+                          className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                        >
+                          {isOpen ? 'Hide' : 'View'}
+                        </button>
+                        {user?.role === 'ADMIN' && (
+                          <button
+                            onClick={() => handleDelete(sale.id)}
+                            className="rounded-xl border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Expanded items — receipt style */}
                   {isOpen && (
                     <div className="border-t border-dashed border-slate-200 bg-slate-50/60 p-4">
                       <div className="mx-auto max-w-xs font-mono text-xs text-slate-700">
@@ -257,6 +321,33 @@ export default function SalesHistoryPage() {
                         <div className="mt-2 flex justify-between border-t border-dashed border-slate-300 pt-2 text-sm font-bold text-slate-900">
                           <span>TOTAL</span>
                           <span>Rs {sale.totalAmount}</span>
+                        </div>
+
+                        <div className="mt-2 space-y-0.5 border-t border-dashed border-slate-300 pt-2 text-[11px] text-slate-500">
+                          <div className="flex justify-between">
+                            <span>Payment Method</span>
+                            <span className="font-medium text-slate-700">
+                              {pay.icon} {pay.text}
+                            </span>
+                          </div>
+                          {sale.paymentMethod === 'CASH' && sale.cashReceived && (
+                            <>
+                              <div className="flex justify-between">
+                                <span>Cash Received</span>
+                                <span>Rs {sale.cashReceived}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Change Given</span>
+                                <span>
+                                  Rs{' '}
+                                  {(
+                                    parseFloat(sale.cashReceived) -
+                                    parseFloat(sale.totalAmount)
+                                  ).toFixed(2)}
+                                </span>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

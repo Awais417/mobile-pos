@@ -13,8 +13,6 @@ export interface CreateSaleInput {
   cashReceived?: number;
   provider?: string;
   bankName?: string;
-  cardLastFour?: string;
-  referenceNumber?: string;
 }
 
 export interface SaleItem {
@@ -28,6 +26,7 @@ export interface SaleItem {
 
 export interface Sale {
   id: string;
+  dailyInvoiceNumber: number;
   totalAmount: string;
   createdAt: string;
   items: SaleItem[];
@@ -35,8 +34,6 @@ export interface Sale {
   cashReceived: string | null;
   provider: string | null;
   bankName: string | null;
-  cardLastFour: string | null;
-  referenceNumber: string | null;
 }
 
 export async function createSale(input: CreateSaleInput): Promise<Sale> {
@@ -45,4 +42,8 @@ export async function createSale(input: CreateSaleInput): Promise<Sale> {
 
 export async function getSales(): Promise<Sale[]> {
   return apiClient.get<Sale[]>('/sales');
+}
+
+export async function deleteSale(id: string): Promise<void> {
+  await apiClient.del(`/sales/${id}`);
 }
