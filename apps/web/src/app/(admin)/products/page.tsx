@@ -9,6 +9,15 @@ import {
   Product,
 } from '@/lib/products';
 import { getCategories, Category } from '@/lib/categories';
+import {
+  AlertTriangleIcon,
+  ChevronDownIcon,
+  InboxIcon,
+  PencilIcon,
+  PlusIcon,
+  SearchIcon,
+  Trash2Icon,
+} from '@/components/icons';
 
 const emptyForm = {
   name: '',
@@ -20,6 +29,9 @@ const emptyForm = {
   reorderLevel: '',
   categoryId: '',
 };
+
+const inputClass =
+  'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-slate-400 focus:outline-none focus:ring-4 focus:ring-slate-100';
 
 // Searchable category dropdown — type karke filter karein
 function CategoryPicker({
@@ -64,10 +76,11 @@ function CategoryPicker({
           setQuery('');
         }}
         placeholder={value ? selectedName : placeholder}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+        className={`${inputClass} pr-9`}
       />
+      <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
       {open && (
-        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+        <div className="absolute z-20 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
           <button
             type="button"
             onClick={() => {
@@ -75,14 +88,12 @@ function CategoryPicker({
               setOpen(false);
               setQuery('');
             }}
-            className="block w-full px-3 py-2 text-left text-sm text-gray-500 hover:bg-gray-50"
+            className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-400 hover:bg-slate-50"
           >
             No category
           </button>
           {filtered.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-gray-400">
-              No match found
-            </div>
+            <div className="px-3 py-2 text-sm text-slate-400">No match found</div>
           ) : (
             filtered.map((c) => (
               <button
@@ -93,10 +104,8 @@ function CategoryPicker({
                   setOpen(false);
                   setQuery('');
                 }}
-                className={`block w-full px-3 py-2 text-left text-sm hover:bg-blue-50 ${
-                  c.id === value
-                    ? 'bg-blue-50 font-medium text-blue-700'
-                    : 'text-gray-700'
+                className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                  c.id === value ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600'
                 }`}
               >
                 {c.name}
@@ -224,192 +233,229 @@ export default function ProductsPage() {
   });
 
   const lowStockCount = products.filter(isLowStock).length;
-  const inputClass =
-    'rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900';
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Products</h1>
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-6 flex flex-col gap-1">
+          <h1 className="text-2xl font-bold text-slate-900">Products</h1>
+          <p className="text-sm text-slate-500">
+            Manage your catalog, pricing and stock levels
+          </p>
+        </div>
 
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {!loading && lowStockCount > 0 && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-          <span>⚠️</span>
-          <span>
-            <strong>{lowStockCount}</strong> product
-            {lowStockCount > 1 ? 's are' : ' is'} low on stock.
-          </span>
-        </div>
-      )}
-
-      {/* Form */}
-      <form
-        onSubmit={handleSubmit}
-        className="mb-6 rounded-xl border border-gray-200 bg-white p-4"
-      >
-        <div className="mb-3 text-sm font-medium text-gray-700">
-          {editingId ? 'Edit product' : 'Add new product'}
-        </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <input
-            value={form.name}
-            onChange={(e) => updateField('name', e.target.value)}
-            placeholder="Name"
-            required
-            className={inputClass}
-          />
-          <input
-            value={form.sku}
-            onChange={(e) => updateField('sku', e.target.value)}
-            placeholder="SKU"
-            required
-            disabled={!!editingId}
-            className={`${inputClass} disabled:bg-gray-100`}
-          />
-          {/* Searchable category picker */}
-          <CategoryPicker
-            categories={categories}
-            value={form.categoryId}
-            onChange={(id) => updateField('categoryId', id)}
-          />
-          <input
-            value={form.costPrice}
-            onChange={(e) => updateField('costPrice', e.target.value)}
-            placeholder="Cost price"
-            type="number"
-            step="0.01"
-            required
-            className={inputClass}
-          />
-          <input
-            value={form.salePrice}
-            onChange={(e) => updateField('salePrice', e.target.value)}
-            placeholder="Sale price"
-            type="number"
-            step="0.01"
-            required
-            className={inputClass}
-          />
-          <input
-            value={form.stockQty}
-            onChange={(e) => updateField('stockQty', e.target.value)}
-            placeholder="Stock qty"
-            type="number"
-            className={inputClass}
-          />
-          <input
-            value={form.reorderLevel}
-            onChange={(e) => updateField('reorderLevel', e.target.value)}
-            placeholder="Stock Alert At"
-            type="number"
-            className={inputClass}
-          />
-        </div>
-        <div className="mt-3 flex gap-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {saving ? 'Saving...' : editingId ? 'Update' : 'Add'}
-          </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={cancelEdit}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-      </form>
-
-      {/* Search + Filter */}
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Search by name, SKU or barcode..."
-          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
-        />
-        {categories.length > 0 && (
-          <div className="w-56">
-            <CategoryPicker
-              categories={categories}
-              value={filterCategory}
-              onChange={setFilterCategory}
-              placeholder="Filter by category..."
-            />
+        {error && (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+            <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+            {error}
           </div>
         )}
-      </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-        {loading ? (
-          <p className="p-4 text-gray-500">Loading...</p>
-        ) : filteredProducts.length === 0 ? (
-          <p className="p-4 text-gray-500">No products found.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-gray-600">
-              <tr>
-                <th className="p-3">Name</th>
-                <th className="p-3">SKU</th>
-                <th className="p-3">Category</th>
-                <th className="p-3">Cost</th>
-                <th className="p-3">Sale</th>
-                <th className="p-3">Stock</th>
-                <th className="p-3">Stock Alert</th>
-                <th className="p-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProducts.map((p) => (
-                <tr key={p.id} className="border-t border-gray-100">
-                  <td className="p-3 font-medium text-gray-900">{p.name}</td>
-                  <td className="p-3 text-gray-600">{p.sku}</td>
-                  <td className="p-3 text-gray-600">
-                    {categoryName(p.categoryId)}
-                  </td>
-                  <td className="p-3 text-gray-600">{p.costPrice}</td>
-                  <td className="p-3 text-gray-600">{p.salePrice}</td>
-                  <td className="p-3">
-                    <span className="text-gray-600">{p.stockQty}</span>
-                    {isLowStock(p) && (
-                      <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                        Low
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-3 text-gray-600">{p.reorderLevel}</td>
-                  <td className="p-3">
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => startEdit(p)}
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(p.id)}
-                        className="text-sm text-red-600 hover:underline"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {!loading && lowStockCount > 0 && (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+            <span>
+              <strong>{lowStockCount}</strong> product
+              {lowStockCount > 1 ? 's are' : ' is'} low on stock.
+            </span>
+          </div>
         )}
+
+        {/* Form */}
+        <form
+          onSubmit={handleSubmit}
+          className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="mb-4 text-sm font-semibold text-slate-800">
+            {editingId ? 'Edit product' : 'Add new product'}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <input
+              value={form.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              placeholder="Name"
+              required
+              className={inputClass}
+            />
+            <input
+              value={form.sku}
+              onChange={(e) => updateField('sku', e.target.value)}
+              placeholder="SKU"
+              required
+              disabled={!!editingId}
+              className={`${inputClass} disabled:bg-slate-50 disabled:text-slate-400`}
+            />
+            {/* Searchable category picker */}
+            <CategoryPicker
+              categories={categories}
+              value={form.categoryId}
+              onChange={(id) => updateField('categoryId', id)}
+            />
+            <input
+              value={form.costPrice}
+              onChange={(e) => updateField('costPrice', e.target.value)}
+              placeholder="Cost price"
+              type="number"
+              step="0.01"
+              required
+              className={inputClass}
+            />
+            <input
+              value={form.salePrice}
+              onChange={(e) => updateField('salePrice', e.target.value)}
+              placeholder="Sale price"
+              type="number"
+              step="0.01"
+              required
+              className={inputClass}
+            />
+            <input
+              value={form.stockQty}
+              onChange={(e) => updateField('stockQty', e.target.value)}
+              placeholder="Stock qty"
+              type="number"
+              className={inputClass}
+            />
+            <input
+              value={form.reorderLevel}
+              onChange={(e) => updateField('reorderLevel', e.target.value)}
+              placeholder="Stock Alert At"
+              type="number"
+              className={inputClass}
+            />
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? (
+                'Saving...'
+              ) : editingId ? (
+                'Update product'
+              ) : (
+                <>
+                  <PlusIcon className="h-4 w-4" />
+                  Add product
+                </>
+              )}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+
+        {/* Search + Filter */}
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, SKU or barcode..."
+              className={`${inputClass} pl-10`}
+            />
+          </div>
+          {categories.length > 0 && (
+            <div className="sm:w-64">
+              <CategoryPicker
+                categories={categories}
+                value={filterCategory}
+                onChange={setFilterCategory}
+                placeholder="Filter by category..."
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Table */}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {loading ? (
+            <div className="space-y-3 p-5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+              ))}
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-14 text-center">
+              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                <InboxIcon className="h-6 w-6" />
+              </div>
+              <p className="text-sm font-medium text-slate-700">No products found</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Try adjusting your search or add a new product above
+              </p>
+            </div>
+          ) : (
+            <div className="scrollbar-thin overflow-x-auto">
+              <table className="w-full min-w-205 text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Name</th>
+                    <th className="px-4 py-3 font-medium">SKU</th>
+                    <th className="px-4 py-3 font-medium">Category</th>
+                    <th className="px-4 py-3 font-medium">Cost</th>
+                    <th className="px-4 py-3 font-medium">Sale</th>
+                    <th className="px-4 py-3 font-medium">Stock</th>
+                    <th className="px-4 py-3 font-medium">Stock Alert</th>
+                    <th className="px-4 py-3 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProducts.map((p) => (
+                    <tr
+                      key={p.id}
+                      className="border-t border-slate-100 transition-colors hover:bg-slate-50/70"
+                    >
+                      <td className="px-4 py-3 font-medium text-slate-900">{p.name}</td>
+                      <td className="px-4 py-3 text-slate-500">{p.sku}</td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {categoryName(p.categoryId)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">{p.costPrice}</td>
+                      <td className="px-4 py-3 text-slate-500">{p.salePrice}</td>
+                      <td className="px-4 py-3">
+                        <span className="text-slate-600">{p.stockQty}</span>
+                        {isLowStock(p) && (
+                          <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+                            Low
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">{p.reorderLevel}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => startEdit(p)}
+                            aria-label={`Edit ${p.name}`}
+                            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(p.id)}
+                            aria-label={`Delete ${p.name}`}
+                            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                          >
+                            <Trash2Icon className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

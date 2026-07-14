@@ -15,6 +15,17 @@ import {
   Legend,
 } from 'recharts';
 import { getDashboard, DashboardData } from '@/lib/dashboard';
+import {
+  WalletIcon,
+  TrendingUpIcon,
+  TrendingDownIcon,
+  ReceiptIcon,
+  BoxesIcon,
+  AlertTriangleIcon,
+  CheckCircleIcon,
+} from '@/components/icons';
+import type { ComponentType } from 'react';
+import type { IconProps } from '@/components/icons';
 
 const DAY_OPTIONS = [
   { key: 1, label: 'Today' },
@@ -67,51 +78,58 @@ export default function DashboardPage() {
   const selectedLabel =
     DAY_OPTIONS.find((o) => o.key === days)?.label ?? 'Selected Period';
 
-  const kpiCards = kpis
+  const kpiCards: {
+    label: string;
+    value: string | number;
+    icon: ComponentType<IconProps>;
+    color: string;
+    trend?: string;
+    trendColor?: string;
+  }[] = kpis
     ? [
         {
           label: `Sales (${selectedLabel})`,
           value: `Rs ${kpis.periodRevenue}`,
-          icon: '💰',
+          icon: WalletIcon,
           color: 'bg-emerald-50 text-emerald-600',
-          trend: `${isUp ? '↑' : '↓'} ${Math.abs(changePct).toFixed(1)}% vs previous period`,
+          trend: `${Math.abs(changePct).toFixed(1)}% vs previous period`,
           trendColor: isUp ? 'text-emerald-600' : 'text-red-600',
         },
         {
           label: isLoss ? 'Loss' : 'Profit',
           value: `Rs ${Math.abs(periodProfitNum).toFixed(2)}`,
-          icon: isLoss ? '📉' : '📈',
+          icon: isLoss ? TrendingDownIcon : TrendingUpIcon,
           color: isLoss ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600',
         },
         {
           label: 'Orders',
           value: kpis.periodOrders,
-          icon: '🧾',
+          icon: ReceiptIcon,
           color: 'bg-purple-50 text-purple-600',
         },
         {
           label: 'Avg Order Value',
           value: `Rs ${kpis.avgOrderValue}`,
-          icon: '🧮',
+          icon: WalletIcon,
           color: 'bg-amber-50 text-amber-600',
         },
         {
           label: 'Inventory Value',
           value: `Rs ${kpis.inventoryValue}`,
-          icon: '📦',
+          icon: BoxesIcon,
           color: 'bg-slate-100 text-slate-600',
         },
         {
           label: 'Low Stock Alerts',
           value: kpis.lowStockCount,
-          icon: '⚠️',
+          icon: AlertTriangleIcon,
           color: 'bg-red-50 text-red-600',
         },
       ]
     : [];
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-50 to-slate-100 p-4 sm:p-6">
+    <div className="p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl">
         {/* Header */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -147,27 +165,34 @@ export default function DashboardPage() {
                   className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white"
                 />
               ))
-            : kpiCards.map((c) => (
-                <div
-                  key={c.label}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
-                >
+            : kpiCards.map((c) => {
+                const Icon = c.icon;
+                const TrendIcon = isUp ? TrendingUpIcon : TrendingDownIcon;
+                return (
                   <div
-                    className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl text-lg ${c.color}`}
+                    key={c.label}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
                   >
-                    {c.icon}
-                  </div>
-                  <div className="text-sm text-slate-500">{c.label}</div>
-                  <div className="mt-1 text-2xl font-bold text-slate-900">
-                    {c.value}
-                  </div>
-                  {c.trend && (
-                    <div className={`mt-1 text-xs font-medium ${c.trendColor}`}>
-                      {c.trend}
+                    <div
+                      className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl ${c.color}`}
+                    >
+                      <Icon className="h-5 w-5" />
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div className="text-sm text-slate-500">{c.label}</div>
+                    <div className="mt-1 text-2xl font-bold text-slate-900">
+                      {c.value}
+                    </div>
+                    {c.trend && (
+                      <div
+                        className={`mt-1 flex items-center gap-1 text-xs font-medium ${c.trendColor}`}
+                      >
+                        <TrendIcon className="h-3.5 w-3.5" />
+                        {c.trend}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
         </div>
 
         {/* Revenue Trend Chart */}
@@ -314,7 +339,9 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex h-64 flex-col items-center justify-center text-center text-sm text-slate-400">
-                <span className="mb-2 text-3xl">✅</span>
+                <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
+                  <CheckCircleIcon className="h-6 w-6" />
+                </span>
                 All products well stocked
               </div>
             )}
