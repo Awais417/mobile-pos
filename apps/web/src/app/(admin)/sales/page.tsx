@@ -300,7 +300,7 @@ export default function SalesHistoryPage() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => toggleExpand(sale.id)}
-                          className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                          className="cursor-pointer rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-[#86efac] hover:bg-[#f0fdf4] hover:text-[#16a34a] focus-visible:border-[#86efac] focus-visible:bg-[#f0fdf4] focus-visible:text-[#16a34a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#86efac]"
                         >
                           {isOpen ? 'Hide' : 'View'}
                         </button>

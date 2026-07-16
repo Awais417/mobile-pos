@@ -116,7 +116,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 }`}
               >
                 <Icon
-                  className={`h-[18px] w-[18px] shrink-0 ${
+                  className={`h-4.5 w-4.5 shrink-0 ${
                     active ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'
                   }`}
                 />
@@ -143,7 +143,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600"
           >
-            <LogOutIcon className="h-[18px] w-[18px]" />
+            <LogOutIcon className="h-4.5 w-4.5" />
             Logout
           </button>
         </div>

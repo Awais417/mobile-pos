@@ -436,14 +436,14 @@ export default function ProductsPage() {
                           <button
                             onClick={() => startEdit(p)}
                             aria-label={`Edit ${p.name}`}
-                            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            className="cursor-pointer rounded-lg border border-transparent p-1.5 text-slate-400 transition hover:border-[#86efac] hover:bg-[#f0fdf4] hover:text-[#16a34a] focus-visible:border-[#86efac] focus-visible:bg-[#f0fdf4] focus-visible:text-[#16a34a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#86efac]"
                           >
                             <PencilIcon className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(p.id)}
                             aria-label={`Delete ${p.name}`}
-                            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                            className="cursor-pointer rounded-lg border border-transparent p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
                           >
                             <Trash2Icon className="h-4 w-4" />
                           </button>
