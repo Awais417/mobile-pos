@@ -3,8 +3,8 @@ import { apiClient } from './api-client';
 export interface DashboardKpis {
   periodRevenue: string;
   periodProfit: string;
-  periodOrders: number;
-  avgOrderValue: string;
+  periodSales: number;
+  avgSaleValue: string;
   inventoryValue: string;
   lowStockCount: number;
   revenueChangePct: string;
@@ -14,7 +14,7 @@ export interface RevenueTrendPoint {
   date: string;
   revenue: string;
   profit: string;
-  orders: number;
+  sales: number;
 }
 
 export interface PaymentDistributionItem {
@@ -44,7 +44,7 @@ export interface HourlyHeatmapPoint {
 export interface CashierLeaderboardItem {
   cashierId: string;
   name: string;
-  orders: number;
+  sales: number;
   revenue: string;
   avgBill: string;
 }

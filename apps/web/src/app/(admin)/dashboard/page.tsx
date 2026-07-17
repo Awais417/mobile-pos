@@ -102,14 +102,14 @@ export default function DashboardPage() {
           color: isLoss ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600',
         },
         {
-          label: 'Orders',
-          value: kpis.periodOrders,
+          label: 'Sales',
+          value: kpis.periodSales,
           icon: ReceiptIcon,
           color: 'bg-purple-50 text-purple-600',
         },
         {
-          label: 'Avg Order Value',
-          value: `Rs ${kpis.avgOrderValue}`,
+          label: 'Avg Sale Value',
+          value: `Rs ${kpis.avgSaleValue}`,
           icon: WalletIcon,
           color: 'bg-amber-50 text-amber-600',
         },

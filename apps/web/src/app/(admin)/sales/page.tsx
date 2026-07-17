@@ -7,7 +7,6 @@ import {
   WalletIcon,
   ReceiptIcon,
   CheckCircleIcon,
-  ClockIcon,
   CreditCardIcon,
   SmartphoneIcon,
   LandmarkIcon,
@@ -202,7 +201,7 @@ export default function SalesHistoryPage() {
           })}
         </div>
 
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
               <WalletIcon className="h-4 w-4" />
@@ -229,13 +228,6 @@ export default function SalesHistoryPage() {
             <div className="mt-0.5 text-lg font-bold text-slate-900">
               {summary.count}
             </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
-              <ClockIcon className="h-4 w-4" />
-            </div>
-            <div className="text-xs text-slate-500">Unpaid / Partial</div>
-            <div className="mt-0.5 text-lg font-bold text-slate-900">0</div>
           </div>
         </div>
 

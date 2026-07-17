@@ -65,7 +65,7 @@ export class SalesService extends TenantScopedService {
         }
         if (dto.cashReceived < Number(totalAmount)) {
           throw new BadRequestException(
-            `Cash received (Rs ${dto.cashReceived}) is less than total (Rs ${totalAmount}).`,
+            'The full payment must be received before completing the sale.',
           );
         }
       }
@@ -252,12 +252,12 @@ export class SalesService extends TenantScopedService {
 
     let periodRevenue = 0;
     let periodProfit = 0;
-    const periodOrders = rangeSales.length;
+    const periodSales = rangeSales.length;
 
     let prevPeriodRevenue = 0;
     for (const s of prevRangeSales) prevPeriodRevenue += Number(s.totalAmount);
 
-    type TrendEntry = { revenue: number; profit: number; orders: number };
+    type TrendEntry = { revenue: number; profit: number; sales: number };
     const trendMap: Map<string, TrendEntry> = new Map();
 
     const paymentMap: Record<string, { amount: number; count: number }> = {
@@ -280,7 +280,7 @@ export class SalesService extends TenantScopedService {
 
     const hourlyMap = new Array(24).fill(0);
 
-    type CashierStat = { orders: number; revenue: number };
+    type CashierStat = { sales: number; revenue: number };
     const cashierStats: Map<string, CashierStat> = new Map();
 
     for (const sale of rangeSales) {
@@ -295,10 +295,10 @@ export class SalesService extends TenantScopedService {
       const trendEntry: TrendEntry = trendMap.get(dateKey) ?? {
         revenue: 0,
         profit: 0,
-        orders: 0,
+        sales: 0,
       };
       trendEntry.revenue += saleTotal;
-      trendEntry.orders += 1;
+      trendEntry.sales += 1;
 
       const method = sale.paymentMethod as string;
       if (paymentMap[method]) {
@@ -307,10 +307,10 @@ export class SalesService extends TenantScopedService {
       }
 
       const cashierEntry: CashierStat = cashierStats.get(sale.cashierId) ?? {
-        orders: 0,
+        sales: 0,
         revenue: 0,
       };
-      cashierEntry.orders += 1;
+      cashierEntry.sales += 1;
       cashierEntry.revenue += saleTotal;
       cashierStats.set(sale.cashierId, cashierEntry);
 
@@ -351,7 +351,7 @@ export class SalesService extends TenantScopedService {
       0,
     );
 
-    const avgOrderValue = periodOrders > 0 ? periodRevenue / periodOrders : 0;
+    const avgSaleValue = periodSales > 0 ? periodRevenue / periodSales : 0;
     const revenueChangePct =
       prevPeriodRevenue > 0
         ? ((periodRevenue - prevPeriodRevenue) / prevPeriodRevenue) * 100
@@ -376,8 +376,8 @@ export class SalesService extends TenantScopedService {
       kpis: {
         periodRevenue: periodRevenue.toFixed(2),
         periodProfit: periodProfit.toFixed(2),
-        periodOrders,
-        avgOrderValue: avgOrderValue.toFixed(2),
+        periodSales,
+        avgSaleValue: avgSaleValue.toFixed(2),
         inventoryValue: inventoryValue.toFixed(2),
         lowStockCount: lowStockProducts.length,
         revenueChangePct: revenueChangePct.toFixed(1),
@@ -388,7 +388,7 @@ export class SalesService extends TenantScopedService {
           date,
           revenue: v.revenue.toFixed(2),
           profit: v.profit.toFixed(2),
-          orders: v.orders,
+          sales: v.sales,
         })),
       paymentDistribution: Object.entries(paymentMap).map(([method, v]) => ({
         method,
@@ -422,9 +422,9 @@ export class SalesService extends TenantScopedService {
         .map(([cashierId, v]) => ({
           cashierId,
           name: cashierNameMap.get(cashierId) ?? 'Unknown',
-          orders: v.orders,
+          sales: v.sales,
           revenue: v.revenue.toFixed(2),
-          avgBill: (v.revenue / v.orders).toFixed(2),
+          avgBill: (v.revenue / v.sales).toFixed(2),
         }))
         .sort((a, b) => Number(b.revenue) - Number(a.revenue)),
       lowStockProducts,

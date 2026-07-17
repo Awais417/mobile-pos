@@ -139,7 +139,7 @@ export default function TerminalPage() {
 
     if (paymentMethod === 'CASH') {
       if (!cashReceived || cashReceivedNum < total) {
-        setPaymentError('Cash received must be at least the total amount.');
+        setPaymentError('The full payment must be received before completing the sale.');
         return;
       }
     }
