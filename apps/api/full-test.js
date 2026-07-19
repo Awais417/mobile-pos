@@ -258,7 +258,7 @@ async function main() {
   try {
     const { status, data } = await request('GET', '/sales/dashboard?days=1', null, token);
     status === 200 && data?.kpis
-      ? logPass('Dashboard analytics', `Today: Rs ${data.kpis.periodRevenue}, Sales: ${data.kpis.periodSales}`)
+      ? logPass('Dashboard analytics', `Today: Rs ${data.kpis.periodRevenue}, Orders: ${data.kpis.periodOrders}`)
       : logFail('Dashboard analytics', `status ${status}`);
   } catch (err) {
     logFail('Dashboard analytics', err.message);
