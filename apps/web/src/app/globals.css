@@ -43,3 +43,42 @@ body {
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: #94a3b8;
 }
+
+/* Modal open/close transitions (overlay fade + panel scale) */
+@keyframes modal-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes modal-panel-out {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to { opacity: 0; transform: scale(0.96) translateY(8px); }
+}
+.animate-modal-overlay-in {
+  animation: modal-overlay-in 0.18s ease-out;
+}
+.animate-modal-overlay-out {
+  animation: modal-overlay-out 0.18s ease-in forwards;
+}
+.animate-modal-panel-in {
+  animation: modal-panel-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-modal-panel-out {
+  animation: modal-panel-out 0.18s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-modal-overlay-in,
+  .animate-modal-overlay-out,
+  .animate-modal-panel-in,
+  .animate-modal-panel-out {
+    animation-duration: 0.01ms !important;
+  }
+}

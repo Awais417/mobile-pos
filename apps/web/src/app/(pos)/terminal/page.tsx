@@ -24,10 +24,14 @@ export default function TerminalPage() {
   const [receipt, setReceipt] = useState<Sale | null>(null);
   const [editingReceipt, setEditingReceipt] = useState(false);
   const [editMessage, setEditMessage] = useState<string | null>(null);
+  const [closingReceipt, setClosingReceipt] = useState(false);
+  const [printingReceipt, setPrintingReceipt] = useState(false);
   const [scanInput, setScanInput] = useState('');
   const [showProducts, setShowProducts] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const scanRef = useRef<HTMLInputElement>(null);
+  const receiptModalRef = useRef<HTMLDivElement>(null);
+  const receiptCloseButtonRef = useRef<HTMLButtonElement>(null);
 
   // Payment modal state
   const [showPayment, setShowPayment] = useState(false);
@@ -172,6 +176,30 @@ export default function TerminalPage() {
     }
   }
 
+  function closeReceiptModal() {
+    setClosingReceipt(true);
+    setTimeout(() => {
+      setReceipt(null);
+      setEditingReceipt(false);
+      setEditMessage(null);
+      setClosingReceipt(false);
+    }, 180);
+  }
+
+  function handlePrintReceipt() {
+    if (printingReceipt) return;
+    setPrintingReceipt(true);
+
+    function handleAfterPrint() {
+      window.removeEventListener('afterprint', handleAfterPrint);
+      setPrintingReceipt(false);
+      closeReceiptModal();
+    }
+
+    window.addEventListener('afterprint', handleAfterPrint);
+    window.print();
+  }
+
   function removeReceiptItem(itemId: string) {
     if (!receipt) return;
     const newItems = receipt.items.filter((i) => i.id !== itemId);
@@ -259,6 +287,43 @@ export default function TerminalPage() {
     await logout();
     router.replace('/login');
   }
+
+  // Escape-to-close + focus trap for the receipt/edit dialog
+  useEffect(() => {
+    if (!receipt) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    receiptCloseButtonRef.current?.focus();
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeReceiptModal();
+        return;
+      }
+      if (e.key === 'Tab' && receiptModalRef.current) {
+        const focusable = receiptModalRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [receipt]);
 
   const paymentMethods: { key: PaymentMethod; label: string; icon: string }[] = [
     { key: 'CASH', label: 'Cash', icon: '💵' },
@@ -667,8 +732,47 @@ export default function TerminalPage() {
 
       {/* Receipt Modal */}
       {receipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm print:bg-white print:p-0 print:backdrop-blur-none">
-          <div className="max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl print:max-w-full print:shadow-none">
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm print:bg-white print:p-0 print:backdrop-blur-none ${
+            closingReceipt ? 'animate-modal-overlay-out' : 'animate-modal-overlay-in'
+          }`}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeReceiptModal();
+          }}
+        >
+          <div
+            ref={receiptModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-modal-title"
+            aria-describedby="receipt-modal-description"
+            className={`flex w-[92vw] max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:w-full sm:max-w-2xl print:max-h-none print:w-full print:max-w-full print:overflow-visible print:rounded-none print:border-none print:shadow-none ${
+              closingReceipt ? 'animate-modal-panel-out' : 'animate-modal-panel-in'
+            }`}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4 print:hidden">
+              <div>
+                <h2 id="receipt-modal-title" className="text-lg font-bold text-slate-900">
+                  {editingReceipt ? 'Edit Sale' : 'Sale Receipt'}
+                </h2>
+                <p id="receipt-modal-description" className="mt-0.5 text-xs text-slate-500">
+                  Bill #{receipt.dailyInvoiceNumber} ·{' '}
+                  {new Date(receipt.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <button
+                ref={receiptCloseButtonRef}
+                onClick={closeReceiptModal}
+                aria-label="Close receipt"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 print:overflow-visible print:p-0">
             <div
               id="receipt-print"
               className="mx-auto font-mono text-slate-900"
@@ -777,14 +881,17 @@ export default function TerminalPage() {
             </div>
 
             {editingReceipt && (
-              <div className="mt-4 border-t border-slate-200 pt-4 print:hidden">
+              <div className="mt-5 border-t border-slate-200 pt-4 print:hidden">
                 {editMessage && (
-                  <div className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                  <div
+                    role="alert"
+                    className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700"
+                  >
                     {editMessage}
                   </div>
                 )}
                 <p className="mb-2 text-xs font-semibold text-slate-600">Add product</p>
-                <div className="grid max-h-32 grid-cols-2 gap-2 overflow-y-auto">
+                <div className="grid max-h-36 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
                   {products.map((p) => (
                     <button
                       key={p.id}
@@ -801,30 +908,33 @@ export default function TerminalPage() {
                 </div>
               </div>
             )}
+            </div>
 
-            <div className="mt-5 flex gap-2 print:hidden">
+            {/* Footer */}
+            <div className="flex gap-2 border-t border-slate-100 px-6 py-4 print:hidden">
               <button
-                onClick={() => window.print()}
-                className="flex-1 rounded-xl bg-linear-to-br from-blue-600 to-indigo-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md"
+                onClick={handlePrintReceipt}
+                disabled={printingReceipt}
+                className="flex-1 rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-60"
               >
-                Print
+                {printingReceipt ? 'Printing...' : 'Print'}
               </button>
               <button
                 onClick={() => {
                   setEditingReceipt((v) => !v);
                   setEditMessage(null);
                 }}
-                className="flex-1 rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className={`flex-1 rounded-xl py-2.5 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  editingReceipt
+                    ? 'bg-linear-to-br from-blue-600 to-indigo-600 text-white hover:shadow-md'
+                    : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
               >
                 {editingReceipt ? 'Done' : 'Edit'}
               </button>
               <button
-                onClick={() => {
-                  setReceipt(null);
-                  setEditingReceipt(false);
-                  setEditMessage(null);
-                }}
-                className="flex-1 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+                onClick={closeReceiptModal}
+                className="flex-1 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 New
               </button>
