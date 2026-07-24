@@ -1,321 +1,121 @@
-# CashFlow POS + ERP API
+# Mobile POS & ERP API
 
-> Enterprise-grade Multi-Tenant SaaS POS & ERP Backend for Cash & Carry Retail Businesses.
+Backend service for the Mobile POS & ERP System.
 
----
+Built with **NestJS**, **Prisma ORM**, and **PostgreSQL**, the API provides secure, scalable and modular endpoints for managing the complete business workflow of a mobile phone retail store.
 
-## 📌 Overview
+## Features
 
-CashFlow POS + ERP is a scalable, secure, and production-ready backend built using NestJS and PostgreSQL. The system is designed for cash & carry retail businesses with multi-tenant architecture, role-based access control, inventory management, sales processing, reporting, and ERP capabilities.
-
-This repository currently contains the backend API foundation.
-
----
-
-# Tech Stack
-
-| Layer | Technology |
-|--------|------------|
-| Framework | NestJS |
-| Language | TypeScript |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Authentication | JWT + Refresh Tokens |
-| Password Hashing | Argon2 |
-| Validation | Zod + class-validator |
-| API Documentation | Swagger |
-| Queue | BullMQ *(Planned)* |
-| Cache | Redis *(Planned)* |
-| Deployment | Docker *(Planned)* |
-
----
-
-# Current Progress
-
-## ✅ Completed
-
-- Environment Validation (Zod)
-- Global Exception Filter
-- ESLint + Prettier
-- Rate Limiting
-- Helmet Security Headers
-
-## 🚧 In Progress
-
-- Logout
-- Refresh Token Rotation
-- Health Check
-- Tenant Isolation
-
-## 📅 Upcoming
-
-- Authentication Module
-- RBAC
-- Product Module
-- Inventory Module
-- Purchase Module
-- Sales Module
-- Reports Module
-- Notifications
+- Authentication & Authorization (JWT)
+- Role-Based Access Control (RBAC)
+- Multi-Branch Management
+- Product & Category Management
+- IMEI / Serialized Inventory
+- Stock Management
+- POS & Sales
+- Customer Management
+- Supplier Management
+- Purchase Management
+- Sales Returns
+- Receivables & Payments
+- Dashboard Analytics
 - Audit Logs
+- Reports
+- File Upload Support
+- RESTful APIs
+- Swagger API Documentation
 
----
+## Tech Stack
 
-# Project Structure
+- NestJS
+- TypeScript
+- Prisma ORM
+- PostgreSQL
+- JWT Authentication
+- Swagger
+- Zod Validation
+
+## Project Structure
 
 ```text
 src/
-│
 ├── auth/
-├── common/
-├── config/
-├── prisma/
-├── tenant/
 ├── users/
-│
-├── app.module.ts
-└── main.ts
-
-prisma/
-│
-└── schema.prisma
+├── roles/
+├── branches/
+├── categories/
+├── models/
+├── products/
+├── inventory/
+├── sales/
+├── purchases/
+├── customers/
+├── suppliers/
+├── dashboard/
+├── reports/
+├── finance/
+├── prisma/
+└── common/
 ```
 
----
+## Installation
 
-# Installation
-
-Clone repository
+Install dependencies:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/cashflow-pos-api.git
+pnpm install
 ```
 
-Move into project
-
-```bash
-cd cashflow-pos-api
-```
-
-Install packages
-
-```bash
-npm install
-```
-
----
-
-# Environment Variables
+## Environment Variables
 
 Create a `.env` file.
-
-Example:
 
 ```env
 DATABASE_URL=
 JWT_SECRET=
-JWT_REFRESH_SECRET=
-PORT=3001
-NODE_ENV=development
+PORT=4000
 ```
 
----
+## Database
 
-# Run Project
-
-Development
+Generate Prisma Client:
 
 ```bash
-npm run start:dev
+pnpm prisma generate
 ```
 
-Build
+Run Migrations:
 
 ```bash
-npm run build
+pnpm prisma migrate dev
 ```
 
-Production
+Seed Database (if available):
 
 ```bash
-npm run start:prod
+pnpm prisma db seed
 ```
 
----
-
-# Prisma
-
-Generate Client
+## Run Development Server
 
 ```bash
-npx prisma generate
+pnpm run start:dev
 ```
 
-Create Migration
+## Build
 
 ```bash
-npx prisma migrate dev --name init
+pnpm run build
 ```
 
-Open Prisma Studio
+## API Documentation
 
-```bash
-npx prisma studio
+Swagger is available at:
+
+```text
+http://localhost:4000/api
 ```
 
----
+## License
 
-# Code Quality
-
-Run ESLint
-
-```bash
-npm run lint
-```
-
-Format Code
-
-```bash
-npm run format
-```
-
----
-
-# Security Features
-
-- JWT Authentication
-- Refresh Tokens
-- Argon2 Password Hashing
-- Helmet Security Headers
-- Global Exception Handling
-- Environment Validation
-- Rate Limiting
-
----
-
-# Engineering Principles
-
-This project follows:
-
-- SOLID Principles
-- Clean Architecture
-- Dependency Injection
-- Modular Design
-- DRY
-- KISS
-- Strict TypeScript
-- Production-first Development
-
----
-
-# Development Workflow
-
-Every feature follows this process:
-
-```
-DTO
-↓
-
-Validation
-
-↓
-
-Controller
-
-↓
-
-Service
-
-↓
-
-Prisma
-
-↓
-
-Swagger Testing
-
-↓
-
-Git Commit
-```
-
----
-
-# Git Branch Strategy
-
-```
-main
-
-develop
-
-feature/auth
-
-feature/inventory
-
-feature/sales
-
-feature/reports
-```
-
----
-
-# Commit Convention
-
-```
-feat:
-
-fix:
-
-refactor:
-
-docs:
-
-test:
-
-chore:
-```
-
-Examples
-
-```bash
-git commit -m "feat: implement JWT authentication"
-
-git commit -m "fix: resolve refresh token validation"
-
-git commit -m "refactor: improve auth service"
-```
-
----
-
-# Future Modules
-
-- Multi Tenant SaaS
-- Branch Management
-- Warehouse
-- Inventory
-- Purchase Orders
-- Goods Receiving
-- POS Billing
-- Returns
-- Customer Management
-- Supplier Management
-- Financial Reports
-- Notifications
-- Audit Logs
-- Dashboard
-- Redis
-- BullMQ
-- Docker
-- CI/CD
-
----
-
-# License
-
-Private Project
-
-Confidential
-
-© 2026 CashFlow POS + ERP
-
-All Rights Reserved.
+Private Repository © Shanayn Labs
