@@ -1,8 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { getSales, deleteSale, Sale, PaymentMethod } from '@/lib/sales';
+import { useEffect, useMemo, useState } from 'react';
+import { getSales, archiveSale, Sale, PaymentMethod } from '@/lib/sales';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useToast } from '@/components/ui/Toast';
+import { formatCurrency, formatNumber } from '@/lib/format';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { SummaryCard } from '@/components/ui/SummaryCard';
+import { SearchInput } from '@/components/ui/SearchInput';
+import { FilterToolbar } from '@/components/ui/FilterToolbar';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { TableSkeleton, SkeletonCard } from '@/components/ui/Skeletons';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { PriceDisplay } from '@/components/ui/PriceDisplay';
+import { ActionMenu } from '@/components/ui/ActionMenu';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Drawer } from '@/components/ui/Drawer';
+import { inputClass, labelClass } from '@/components/ui/styles';
 import {
   WalletIcon,
   ReceiptIcon,
@@ -12,6 +26,8 @@ import {
   LandmarkIcon,
   InboxIcon,
   AlertTriangleIcon,
+  EyeIcon,
+  UsersIcon,
 } from '@/components/icons';
 import type { ComponentType } from 'react';
 import type { IconProps } from '@/components/icons';
@@ -61,10 +77,7 @@ function isInRange(dateStr: string, key: DateFilterKey): boolean {
   }
 
   if (key === 'month') {
-    return (
-      date.getFullYear() === now.getFullYear() &&
-      date.getMonth() === now.getMonth()
-    );
+    return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
   }
 
   return true;
@@ -79,10 +92,7 @@ function formatDate(iso: string): string {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 function paymentLabel(sale: Sale): { text: string; icon: ComponentType<IconProps> } {
@@ -100,14 +110,30 @@ function paymentLabel(sale: Sale): { text: string; icon: ComponentType<IconProps
   }
 }
 
+// costPrice sale ke waqt snapshot ki gayi hai — backend-authoritative values
+// ka sirf sum hai, koi naya calculation nahi
+function saleProfit(sale: Sale): number {
+  return sale.items.reduce(
+    (sum, item) => sum + (Number(item.lineTotal) - Number(item.costPrice) * item.quantity),
+    0,
+  );
+}
+
 export default function SalesHistoryPage() {
   const { user } = useCurrentUser();
+  const { showToast } = useToast();
+  const isAdmin = user?.role === 'ADMIN';
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [viewSale, setViewSale] = useState<Sale | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Sale | null>(null);
+  const [archiveReason, setArchiveReason] = useState('');
+  const [archiving, setArchiving] = useState(false);
+  const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterKey>('today');
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilterKey>('ALL');
+  const [salesmanFilter, setSalesmanFilter] = useState('');
 
   useEffect(() => {
     getSales()
@@ -116,47 +142,66 @@ export default function SalesHistoryPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function toggleExpand(id: string) {
-    setExpandedId((prev) => (prev === id ? null : id));
-  }
+  const salesmen = useMemo(() => Array.from(new Set(sales.map((s) => s.cashierName))), [sales]);
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this bill?')) {
-      return;
-    }
+  const filteredSales = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return sales.filter((s) => {
+      if (!isInRange(s.createdAt, dateFilter)) return false;
+      if (paymentFilter !== 'ALL' && s.paymentMethod !== paymentFilter) return false;
+      if (salesmanFilter && s.cashierName !== salesmanFilter) return false;
+      if (q) {
+        const hay = [String(s.dailyInvoiceNumber), s.cashierName, ...s.items.map((i) => i.productName)]
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [sales, search, dateFilter, paymentFilter, salesmanFilter]);
+
+  const summary = useMemo(() => {
+    return filteredSales.reduce(
+      (acc, s) => {
+        acc.total += parseFloat(s.totalAmount);
+        acc.profit += saleProfit(s);
+        acc.count += 1;
+        return acc;
+      },
+      { total: 0, profit: 0, count: 0 },
+    );
+  }, [filteredSales]);
+
+  const hasActiveFilters = !!(salesmanFilter || paymentFilter !== 'ALL');
+
+  async function handleArchive() {
+    if (!archiveTarget) return;
+    setArchiving(true);
     try {
-      await deleteSale(id);
-      setSales((prev) => prev.filter((s) => s.id !== id));
+      await archiveSale(archiveTarget.id, archiveReason.trim() || undefined);
+      setSales((prev) => prev.filter((s) => s.id !== archiveTarget.id));
+      showToast('success', 'Sale archived. Revenue and profit are unaffected.');
+      setArchiveTarget(null);
+      setArchiveReason('');
     } catch {
-      alert('Could not delete this bill.');
+      showToast('error', 'Could not archive this sale.');
+    } finally {
+      setArchiving(false);
     }
   }
 
-  const filteredSales = sales.filter((s) => {
-    const dateMatch = isInRange(s.createdAt, dateFilter);
-    const paymentMatch =
-      paymentFilter === 'ALL' || s.paymentMethod === paymentFilter;
-    return dateMatch && paymentMatch;
-  });
-
-  const summary = filteredSales.reduce(
-    (acc, s) => {
-      acc.total += parseFloat(s.totalAmount);
-      acc.count += 1;
-      return acc;
-    },
-    { total: 0, count: 0 },
-  );
+  const summaryCards = [
+    { label: 'Total Amount', value: formatCurrency(summary.total), icon: WalletIcon, color: 'bg-emerald-50 text-emerald-600' },
+    { label: 'Number of Sales', value: formatNumber(summary.count), icon: ReceiptIcon, color: 'bg-blue-50 text-blue-600' },
+    ...(isAdmin
+      ? [{ label: 'Total Profit', value: formatCurrency(summary.profit), icon: CheckCircleIcon, color: 'bg-purple-50 text-purple-600' }]
+      : []),
+  ];
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-slate-900">Sales History</h1>
-          <p className="text-sm text-slate-500">
-            View and track all completed transactions
-          </p>
-        </div>
+      <div className="mx-auto max-w-6xl">
+        <PageHeader title="Sales History" subtitle="View and track all completed transactions" />
 
         {error && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
@@ -172,7 +217,7 @@ export default function SalesHistoryPage() {
               onClick={() => setDateFilter(f.key)}
               className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
                 dateFilter === f.key
-                  ? 'bg-slate-900 text-white shadow-sm'
+                  ? 'bg-primary text-white shadow-sm'
                   : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
@@ -181,7 +226,17 @@ export default function SalesHistoryPage() {
           ))}
         </div>
 
-        <div className="mb-5 flex flex-wrap gap-2">
+        <div className="mb-3">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search by invoice #, salesman or item..." />
+        </div>
+
+        <FilterToolbar
+          hasActiveFilters={hasActiveFilters}
+          onClear={() => {
+            setPaymentFilter('ALL');
+            setSalesmanFilter('');
+          }}
+        >
           {PAYMENT_FILTERS.map((f) => {
             const Icon = f.icon;
             return (
@@ -190,7 +245,7 @@ export default function SalesHistoryPage() {
                 onClick={() => setPaymentFilter(f.key)}
                 className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-medium transition ${
                   paymentFilter === f.key
-                    ? 'bg-blue-600 text-white shadow-sm'
+                    ? 'bg-primary text-white shadow-sm'
                     : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
               >
@@ -199,178 +254,197 @@ export default function SalesHistoryPage() {
               </button>
             );
           })}
-        </div>
+          {isAdmin && salesmen.length > 1 && (
+            <select
+              value={salesmanFilter}
+              onChange={(e) => setSalesmanFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-100"
+            >
+              <option value="">All Salesmen</option>
+              {salesmen.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
+        </FilterToolbar>
 
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-              <WalletIcon className="h-4 w-4" />
-            </div>
-            <div className="text-xs text-slate-500">Total Amount</div>
-            <div className="mt-0.5 text-lg font-bold text-slate-900">
-              Rs {summary.total.toFixed(2)}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-              <ReceiptIcon className="h-4 w-4" />
-            </div>
-            <div className="text-xs text-slate-500">Number of Sales</div>
-            <div className="mt-0.5 text-lg font-bold text-slate-900">
-              {summary.count}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-              <CheckCircleIcon className="h-4 w-4" />
-            </div>
-            <div className="text-xs text-slate-500">Paid</div>
-            <div className="mt-0.5 text-lg font-bold text-slate-900">
-              {summary.count}
-            </div>
-          </div>
+          {loading
+            ? Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} className="h-24" />)
+            : summaryCards.map((c) => <SummaryCard key={c.label} {...c} />)}
         </div>
 
-        {loading ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500">
-            Loading...
-          </div>
-        ) : filteredSales.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-14 text-center">
-            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-              <InboxIcon className="h-6 w-6" />
-            </div>
-            <p className="text-sm font-medium text-slate-700">No sales found</p>
-            <p className="mt-1 text-xs text-slate-400">
-              No transactions match this filter
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filteredSales.map((sale) => {
-              const isOpen = expandedId === sale.id;
-              const pay = paymentLabel(sale);
-              return (
-                <div
-                  key={sale.id}
-                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md"
-                >
-                  <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm">
-                        <ReceiptIcon className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-sm font-semibold text-slate-900">
-                            Bill #{sale.dailyInvoiceNumber}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {loading ? (
+            <TableSkeleton />
+          ) : filteredSales.length === 0 ? (
+            <EmptyState
+              icon={InboxIcon}
+              title="No sales recorded"
+              description="Completed sales will appear here."
+            />
+          ) : (
+            <div className="scrollbar-thin overflow-x-auto">
+              <table className="w-full min-w-225 text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Invoice</th>
+                    <th className="px-4 py-3 font-medium">Date &amp; Time</th>
+                    <th className="px-4 py-3 font-medium">Salesman</th>
+                    <th className="px-4 py-3 font-medium">Payment Method</th>
+                    <th className="px-4 py-3 font-medium">Total</th>
+                    {isAdmin && <th className="px-4 py-3 font-medium">Profit</th>}
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSales.map((sale) => {
+                    const pay = paymentLabel(sale);
+                    return (
+                      <tr key={sale.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
+                        <td className="px-4 py-3 font-mono text-sm font-semibold text-slate-900">
+                          #{sale.dailyInvoiceNumber}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {formatDate(sale.createdAt)} · {formatTime(sale.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          <span className="inline-flex items-center gap-1.5">
+                            <UsersIcon className="h-3.5 w-3.5 text-slate-400" />
+                            {sale.cashierName}
                           </span>
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                            Paid
-                          </span>
-                          <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                            <pay.icon className="h-3 w-3" />
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          <span className="inline-flex items-center gap-1.5">
+                            <pay.icon className="h-3.5 w-3.5 text-slate-400" />
                             {pay.text}
                           </span>
-                        </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          {formatDate(sale.createdAt)} · {formatTime(sale.createdAt)}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 sm:justify-end">
-                      <div className="text-right">
-                        <div className="text-[11px] text-slate-400">
-                          {sale.items.length} item
-                          {sale.items.length > 1 ? 's' : ''}
-                        </div>
-                        <div className="text-lg font-bold text-slate-900">
-                          Rs {sale.totalAmount}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => toggleExpand(sale.id)}
-                          className="cursor-pointer rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-[#86efac] hover:bg-[#f0fdf4] hover:text-[#16a34a] focus-visible:border-[#86efac] focus-visible:bg-[#f0fdf4] focus-visible:text-[#16a34a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#86efac]"
-                        >
-                          {isOpen ? 'Hide' : 'View'}
-                        </button>
-                        {user?.role === 'ADMIN' && (
-                          <button
-                            onClick={() => handleDelete(sale.id)}
-                            className="rounded-xl border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50"
-                          >
-                            Delete
-                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <PriceDisplay value={sale.totalAmount} />
+                        </td>
+                        {isAdmin && (
+                          <td className="px-4 py-3">
+                            <PriceDisplay value={saleProfit(sale)} tone={saleProfit(sale) < 0 ? 'danger' : 'success'} />
+                          </td>
                         )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {isOpen && (
-                    <div className="border-t border-dashed border-slate-200 bg-slate-50/60 p-4">
-                      <div className="mx-auto max-w-xs font-mono text-xs text-slate-700">
-                        <div className="mb-1 flex justify-between font-semibold text-slate-500">
-                          <span className="w-1/2">Item</span>
-                          <span className="w-1/4 text-center">Qty</span>
-                          <span className="w-1/4 text-right">Amount</span>
-                        </div>
-                        <div className="space-y-1 border-t border-dashed border-slate-300 pt-1">
-                          {sale.items.map((item) => (
-                            <div key={item.id} className="flex justify-between">
-                              <span className="w-1/2 truncate">
-                                {item.productName}
-                              </span>
-                              <span className="w-1/4 text-center">
-                                {item.quantity}
-                              </span>
-                              <span className="w-1/4 text-right">
-                                {item.lineTotal}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-2 flex justify-between border-t border-dashed border-slate-300 pt-2 text-sm font-bold text-slate-900">
-                          <span>TOTAL</span>
-                          <span>Rs {sale.totalAmount}</span>
-                        </div>
-
-                        <div className="mt-2 space-y-0.5 border-t border-dashed border-slate-300 pt-2 text-[11px] text-slate-500">
-                          <div className="flex justify-between">
-                            <span>Payment Method</span>
-                            <span className="flex items-center gap-1 font-medium text-slate-700">
-                              <pay.icon className="h-3 w-3" /> {pay.text}
-                            </span>
-                          </div>
-                          {sale.paymentMethod === 'CASH' && sale.cashReceived && (
-                            <>
-                              <div className="flex justify-between">
-                                <span>Cash Received</span>
-                                <span>Rs {sale.cashReceived}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Change Given</span>
-                                <span>
-                                  Rs{' '}
-                                  {(
-                                    parseFloat(sale.cashReceived) -
-                                    parseFloat(sale.totalAmount)
-                                  ).toFixed(2)}
-                                </span>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                        <td className="px-4 py-3">
+                          <StatusBadge tone="success">Paid</StatusBadge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <ActionMenu
+                            actions={[
+                              { label: 'View', icon: EyeIcon, variant: 'view', onClick: () => setViewSale(sale) },
+                              ...(isAdmin
+                                ? [{ label: 'Archive', icon: InboxIcon, variant: 'delete' as const, onClick: () => setArchiveTarget(sale) }]
+                                : []),
+                            ]}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Invoice detail drawer */}
+      {viewSale && (
+        <Drawer
+          title={`Bill #${viewSale.dailyInvoiceNumber}`}
+          subtitle={`${formatDate(viewSale.createdAt)} · ${formatTime(viewSale.createdAt)}`}
+          onClose={() => setViewSale(null)}
+        >
+          <div className="mx-auto max-w-xs font-mono text-xs text-slate-700">
+            <div className="mb-1 flex justify-between font-semibold text-slate-500">
+              <span className="w-1/2">Item</span>
+              <span className="w-1/4 text-center">Qty</span>
+              <span className="w-1/4 text-right">Amount</span>
+            </div>
+            <div className="space-y-1 border-t border-dashed border-slate-300 pt-1">
+              {viewSale.items.map((item) => (
+                <div key={item.id} className="flex justify-between">
+                  <span className="w-1/2 truncate">{item.productName}</span>
+                  <span className="w-1/4 text-center">{item.quantity}</span>
+                  <span className="w-1/4 text-right">{formatCurrency(item.lineTotal)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex justify-between border-t border-dashed border-slate-300 pt-2 text-sm font-bold text-slate-900">
+              <span>TOTAL</span>
+              <span>{formatCurrency(viewSale.totalAmount)}</span>
+            </div>
+
+            <div className="mt-2 space-y-0.5 border-t border-dashed border-slate-300 pt-2 text-[11px] text-slate-500">
+              <div className="flex justify-between">
+                <span>Salesman</span>
+                <span className="font-medium text-slate-700">{viewSale.cashierName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Payment Method</span>
+                <span className="flex items-center gap-1 font-medium text-slate-700">
+                  {paymentLabel(viewSale).text}
+                </span>
+              </div>
+              {viewSale.paymentMethod === 'CASH' && viewSale.cashReceived && (
+                <>
+                  <div className="flex justify-between">
+                    <span>Cash Received</span>
+                    <span>{formatCurrency(viewSale.cashReceived)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Change Given</span>
+                    <span>
+                      {formatCurrency(parseFloat(viewSale.cashReceived) - parseFloat(viewSale.totalAmount))}
+                    </span>
+                  </div>
+                </>
+              )}
+              {isAdmin && (
+                <div className="flex justify-between">
+                  <span>Profit</span>
+                  <span className="font-medium text-slate-700">{formatCurrency(saleProfit(viewSale))}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </Drawer>
+      )}
+
+      {/* Archive confirmation — hides from history only; revenue, profit, and
+          inventory are untouched. Not a Return. */}
+      {archiveTarget && (
+        <ConfirmDialog
+          title="Archive This Bill?"
+          description={`Bill #${archiveTarget.dailyInvoiceNumber} will be hidden from Sales History. Revenue, profit, and financial records remain unchanged.`}
+          confirmLabel={archiving ? 'Archiving...' : 'Archive Bill'}
+          variant="danger"
+          loading={archiving}
+          onConfirm={handleArchive}
+          onCancel={() => {
+            setArchiveTarget(null);
+            setArchiveReason('');
+          }}
+        >
+          <label className={labelClass} htmlFor="archive-reason">
+            Reason <span className="font-normal text-slate-400">(optional)</span>
+          </label>
+          <textarea
+            id="archive-reason"
+            value={archiveReason}
+            onChange={(e) => setArchiveReason(e.target.value)}
+            placeholder="e.g. Duplicate entry, corrected in a later sale"
+            rows={2}
+            className={inputClass}
+          />
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

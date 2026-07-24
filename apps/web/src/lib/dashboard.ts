@@ -2,9 +2,14 @@ import { apiClient } from './api-client';
 
 export interface DashboardKpis {
   periodRevenue: string;
+  periodCost: string;
   periodProfit: string;
   periodSales: number;
   avgSaleValue: string;
+  totalProducts: number;
+  totalInventory: number;
+  availableDevices: number;
+  soldDevices: number;
   inventoryValue: string;
   lowStockCount: number;
   revenueChangePct: string;

@@ -1,11 +1,23 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useMemo, useState, FormEvent } from 'react';
 import { getStaff, createStaff, Staff } from '@/lib/staff';
-import { AlertTriangleIcon, InboxIcon, PlusIcon, UsersIcon } from '@/components/icons';
+import { Role } from '@/lib/auth';
+import { useToast } from '@/components/ui/Toast';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { TableSkeleton } from '@/components/ui/Skeletons';
+import { StatusBadge, activeTone } from '@/components/ui/StatusBadge';
+import { FormField } from '@/components/ui/FormField';
+import { Modal } from '@/components/ui/Modal';
+import { SearchInput } from '@/components/ui/SearchInput';
+import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/styles';
+import { AlertTriangleIcon, InboxIcon, Loader2Icon, PlusIcon, UsersIcon } from '@/components/icons';
 
-const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition focus:border-slate-400 focus:outline-none focus:ring-4 focus:ring-slate-100';
+const ROLE_LABELS: Record<Role, string> = {
+  ADMIN: 'Administrator',
+  SALESMAN: 'Salesman',
+};
 
 function initials(name: string | null | undefined): string {
   const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
@@ -15,15 +27,18 @@ function initials(name: string | null | undefined): string {
 }
 
 export default function StaffPage() {
+  const { showToast } = useToast();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const [search, setSearch] = useState('');
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'MANAGER' | 'CASHIER'>('CASHIER');
 
   async function loadStaff() {
     try {
@@ -40,33 +55,55 @@ export default function StaffPage() {
     loadStaff();
   }, []);
 
+  function openAddModal() {
+    setFullName('');
+    setEmail('');
+    setPassword('');
+    setShowAddModal(true);
+  }
+
+  function closeAddModal() {
+    setShowAddModal(false);
+  }
+
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
-    setError(null);
     try {
-      await createStaff({ fullName, email, password, role });
-      setFullName('');
-      setEmail('');
-      setPassword('');
-      setRole('CASHIER');
+      await createStaff({ fullName, email, password, role: 'SALESMAN' });
+      showToast('success', 'Salesman added successfully.');
+      closeAddModal();
       await loadStaff();
     } catch {
-      setError('Could not add staff. Email may already be used.');
+      showToast('error', 'Could not add staff. Email may already be used.');
     } finally {
       setSaving(false);
     }
   }
 
+  const filteredStaff = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return staff.filter((s) => {
+      if (q && !(s.fullName.toLowerCase().includes(q) || s.email.toLowerCase().includes(q))) {
+        return false;
+      }
+      return true;
+    });
+  }, [staff, search]);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-slate-900">Staff</h1>
-          <p className="text-sm text-slate-500">
-            Manage cashiers and managers who can access this business
-          </p>
-        </div>
+      <div className="mx-auto max-w-5xl">
+        <PageHeader
+          title="Staff"
+          subtitle="Manage staff accounts and access."
+          actions={
+            <button type="button" onClick={openAddModal} className={primaryButtonClass}>
+              <PlusIcon className="h-4 w-4" />
+              Add Staff
+            </button>
+          }
+        />
 
         {error && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
@@ -75,102 +112,49 @@ export default function StaffPage() {
           </div>
         )}
 
-        {/* Add form */}
-        <form
-          onSubmit={handleAdd}
-          className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-        >
-          <div className="mb-4 text-sm font-semibold text-slate-800">
-            Add new staff member
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Full name"
-              required
-              className={inputClass}
-            />
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              type="email"
-              required
-              className={inputClass}
-            />
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password (min 8)"
-              type="password"
-              required
-              minLength={8}
-              className={inputClass}
-            />
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as 'MANAGER' | 'CASHIER')}
-              className={inputClass}
-            >
-              <option value="CASHIER">Cashier</option>
-              <option value="MANAGER">Manager</option>
-            </select>
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? (
-                'Adding...'
-              ) : (
-                <>
-                  <PlusIcon className="h-4 w-4" />
-                  Add
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+        <div className="mb-4">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search staff..." />
+        </div>
 
         {/* List */}
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
-            <div className="space-y-3 p-5">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" />
-              ))}
-            </div>
-          ) : staff.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-14 text-center">
-              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-                <InboxIcon className="h-6 w-6" />
-              </div>
-              <p className="text-sm font-medium text-slate-700">No staff yet</p>
-              <p className="mt-1 text-xs text-slate-400">
-                Add your first team member using the form above
-              </p>
-            </div>
+            <TableSkeleton rows={4} />
+          ) : filteredStaff.length === 0 ? (
+            <EmptyState
+              icon={InboxIcon}
+              title={staff.length === 0 ? 'No staff members found.' : 'No staff match your search or filters.'}
+              description={
+                staff.length === 0
+                  ? 'Add your first staff member to get started.'
+                  : 'Try adjusting your search or filters.'
+              }
+              action={
+                staff.length === 0 ? (
+                  <button type="button" onClick={openAddModal} className={primaryButtonClass}>
+                    <PlusIcon className="h-4 w-4" />
+                    Add Staff
+                  </button>
+                ) : undefined
+              }
+            />
           ) : (
             <div className="scrollbar-thin overflow-x-auto">
-              <table className="w-full min-w-165 text-left text-sm">
+              <table className="w-full min-w-150 text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Name</th>
-                    <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Staff Member</th>
+                    <th className="px-4 py-3 font-medium">Contact</th>
                     <th className="px-4 py-3 font-medium">Role</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {staff.map((s) => (
-                    <tr
-                      key={s.id}
-                      className="border-t border-slate-100 transition-colors hover:bg-slate-50/70"
-                    >
+                  {filteredStaff.map((s) => (
+                    <tr key={s.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[11px] font-semibold text-primary">
                             {initials(s.fullName)}
                           </div>
                           <span className="font-medium text-slate-900">{s.fullName}</span>
@@ -178,26 +162,15 @@ export default function StaffPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-500">{s.email}</td>
                       <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        <StatusBadge tone="neutral">
                           <UsersIcon className="h-3 w-3" />
-                          {s.role}
-                        </span>
+                          {ROLE_LABELS[s.role] ?? s.role}
+                        </StatusBadge>
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                            s.isActive
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              s.isActive ? 'bg-emerald-500' : 'bg-slate-400'
-                            }`}
-                          />
+                        <StatusBadge tone={activeTone(s.isActive)} dot>
                           {s.isActive ? 'Active' : 'Disabled'}
-                        </span>
+                        </StatusBadge>
                       </td>
                     </tr>
                   ))}
@@ -207,6 +180,67 @@ export default function StaffPage() {
           )}
         </div>
       </div>
+
+      {/* Add Staff modal */}
+      {showAddModal && (
+        <Modal
+          title="Add Staff"
+          onClose={closeAddModal}
+          size="md"
+          footer={
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeAddModal} disabled={saving} className={secondaryButtonClass}>
+                Cancel
+              </button>
+              <button type="submit" form="add-staff-form" disabled={saving} className={primaryButtonClass}>
+                {saving && <Loader2Icon className="h-4 w-4 animate-spin" />}
+                {saving ? 'Adding...' : 'Add Staff'}
+              </button>
+            </div>
+          }
+        >
+          <form id="add-staff-form" onSubmit={handleAdd}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <FormField label="Full name">
+                  <input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Full name"
+                    required
+                    className={inputClass}
+                  />
+                </FormField>
+              </div>
+              <div className="sm:col-span-2">
+                <FormField label="Email">
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email"
+                    type="email"
+                    required
+                    className={inputClass}
+                  />
+                </FormField>
+              </div>
+              <div className="sm:col-span-2">
+                <FormField label="Password" helper="Minimum 8 characters">
+                  <input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password (min 8)"
+                    type="password"
+                    required
+                    minLength={8}
+                    className={inputClass}
+                  />
+                </FormField>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

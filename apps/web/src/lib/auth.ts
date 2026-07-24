@@ -1,7 +1,7 @@
 import { apiClient } from './api-client';
 import { tokenStorage } from './token-storage';
 
-export type Role = 'ADMIN' | 'MANAGER' | 'CASHIER';
+export type Role = 'ADMIN' | 'SALESMAN';
 
 export interface CurrentUser {
   userId: string;

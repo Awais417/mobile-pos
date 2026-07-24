@@ -63,8 +63,11 @@ async function request<T>(
 
   // Agar token hai to Authorization header lagao (auto)
   const token = tokenStorage.getAccessToken();
+  const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    // FormData ke liye Content-Type qasdan set nahi karte — browser khud
+    // multipart boundary ke saath lagata hai, warna upload corrupt ho jata hai.
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   };
   if (token && !headers.Authorization) {
@@ -109,6 +112,10 @@ export const apiClient = {
       body: body ? JSON.stringify(body) : undefined,
     }),
 
+  // File uploads (multipart/form-data) — body stays a raw FormData, never JSON-stringified.
+  postForm: <T>(endpoint: string, formData: FormData, options?: RequestInit) =>
+    request<T>(endpoint, { ...options, method: 'POST', body: formData }),
+
   patch: <T>(endpoint: string, body?: unknown, options?: RequestInit) =>
     request<T>(endpoint, {
       ...options,
@@ -116,6 +123,10 @@ export const apiClient = {
       body: body ? JSON.stringify(body) : undefined,
     }),
 
-  del: <T>(endpoint: string, options?: RequestInit) =>
-    request<T>(endpoint, { ...options, method: 'DELETE' }),
+  del: <T>(endpoint: string, body?: unknown, options?: RequestInit) =>
+    request<T>(endpoint, {
+      ...options,
+      method: 'DELETE',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
 };

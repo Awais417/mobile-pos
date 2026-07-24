@@ -14,6 +14,7 @@ export interface PaymentTotals {
 export interface SalesSummary {
   totalSales: number;
   totalRevenue: string;
+  totalCost: string;
   totalProfit: string;
   totalItemsSold: number;
   todayRevenue: string;

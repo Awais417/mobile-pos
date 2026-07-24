@@ -250,6 +250,14 @@ export function PlusIcon(props: IconProps) {
   );
 }
 
+export function MinusIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
 export function PencilIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
@@ -274,6 +282,78 @@ export function FilterIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
       <path d="M3.5 5h17L14 13.2V19l-4 2v-7.8Z" />
+    </svg>
+  );
+}
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M2.5 12S5.75 5.5 12 5.5 21.5 12 21.5 12 18.25 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+export function ChevronRightIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="m15 6-6 6 6 6" />
+    </svg>
+  );
+}
+
+export function BellIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M6 8.5a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6.5H4c.5-1 2-2.5 2-6.5Z" />
+      <path d="M10 18.5a2 2 0 0 0 4 0" />
+    </svg>
+  );
+}
+
+export function UserIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  );
+}
+
+export function MoreVerticalIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="5.5" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="18.5" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function PrinterIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M6.5 8.5V4h11v4.5" />
+      <rect x="3.5" y="8.5" width="17" height="8" rx="1.5" />
+      <path d="M6.5 14.5h11V20h-11Z" />
+    </svg>
+  );
+}
+
+export function CalendarIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3.5" y="5" width="17" height="16" rx="2" />
+      <path d="M3.5 9.5h17M8 3v4M16 3v4" />
     </svg>
   );
 }

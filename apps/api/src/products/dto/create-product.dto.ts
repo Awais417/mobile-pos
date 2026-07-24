@@ -1,46 +1,64 @@
-import { IsString, IsOptional, IsNumber, IsInt, Min, MinLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsInt,
+  IsNotEmpty,
+  Min,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+// Accessories (non-serialized) ke liye — serialized phones sirf
+// /products/phones (CreatePhoneDto) se banti hain, yahan se nahi.
 export class CreateProductDto {
-  @ApiProperty({ example: 'Coca Cola 1.5L' })
+  @ApiProperty()
   @IsString()
-  @MinLength(1)
   name!: string;
 
-  @ApiProperty({ example: 'SKU-001' })
+  @ApiProperty()
   @IsString()
-  @MinLength(1)
   sku!: string;
 
-  @ApiProperty({ example: '8964000123456', required: false })
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   barcode?: string;
 
-  @ApiProperty({ example: 120.5 })
+  @ApiProperty()
   @IsNumber()
   @Min(0)
   costPrice!: number;
 
-  @ApiProperty({ example: 150.0 })
+  @ApiProperty()
   @IsNumber()
   @Min(0)
   salePrice!: number;
 
-  @ApiProperty({ example: 100, required: false })
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
   @Min(0)
   stockQty?: number;
 
-  @ApiProperty({ example: 10, required: false })
+  @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
   @Min(0)
   reorderLevel?: number;
 
+  // Category admin ne Category Terminal mein banayi hoti hai (isSerialized: false)
+  @ApiProperty({ example: 'category-id-here' })
+  @IsString()
+  @IsNotEmpty({ message: 'Category is required.' })
+  categoryId!: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  categoryId?: string;
+  color?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  compatibility?: string;
 }

@@ -3,7 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { Prisma, PaymentMethod } from '@prisma/client';
+import { Prisma, PaymentMethod, UnitStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantScopedService } from '../common/tenant/tenant-scoped.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -14,10 +14,15 @@ export class SalesService extends TenantScopedService {
     super();
   }
 
-  async create(businessId: string, cashierId: string, dto: CreateSaleDto) {
+  async create(
+    businessId: string,
+    cashierId: string,
+    dto: CreateSaleDto,
+    role?: string,
+  ) {
     this.assertTenant(businessId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const createdSale = await this.prisma.$transaction(async (tx) => {
       let totalAmount = new Prisma.Decimal(0);
       const saleItemsData: {
         productId: string;
@@ -25,7 +30,11 @@ export class SalesService extends TenantScopedService {
         quantity: number;
         unitPrice: Prisma.Decimal;
         lineTotal: Prisma.Decimal;
+        costPrice: Prisma.Decimal;
+        productUnitId: string | null;
       }[] = [];
+
+      const unitsToMarkSold: string[] = [];
 
       for (const item of dto.items) {
         const product = await tx.product.findFirst({
@@ -36,32 +45,85 @@ export class SalesService extends TenantScopedService {
           throw new NotFoundException(`Product not found: ${item.productId}`);
         }
 
-        if (product.stockQty < item.quantity) {
-          throw new BadRequestException(
-            `Not enough stock for "${product.name}". Available: ${product.stockQty}, requested: ${item.quantity}.`,
-          );
+        if (product.isSerialized) {
+          if (!item.productUnitId) {
+            throw new BadRequestException(
+              `"${product.name}" is a serialized product. Please select a specific unit (IMEI).`,
+            );
+          }
+
+          const unit = await tx.productUnit.findFirst({
+            where: {
+              id: item.productUnitId,
+              businessId,
+              productId: product.id,
+            },
+          });
+
+          if (!unit) {
+            throw new NotFoundException('Selected phone/unit not found.');
+          }
+
+          if (unit.status !== UnitStatus.IN_STOCK) {
+            throw new BadRequestException(
+              `This unit (IMEI: ${unit.imei1}) is not available (status: ${unit.status}).`,
+            );
+          }
+
+          const finalPrice = item.price ?? Number(unit.salePrice);
+          const lineTotal = new Prisma.Decimal(finalPrice);
+          totalAmount = totalAmount.add(lineTotal);
+
+          saleItemsData.push({
+            productId: product.id,
+            productName: `${product.name} (IMEI: ${unit.imei1})`,
+            quantity: 1,
+            unitPrice: lineTotal,
+            lineTotal,
+            // Us specific physical unit ki asal cost — Product.costPrice nahi,
+            // taake har IMEI ki alag cost sahi tarah snapshot ho
+            costPrice: unit.costPrice,
+            productUnitId: unit.id,
+          });
+
+          unitsToMarkSold.push(unit.id);
+        } else {
+          if (product.stockQty < item.quantity) {
+            throw new BadRequestException(
+              `Not enough stock for "${product.name}". Available: ${product.stockQty}, requested: ${item.quantity}.`,
+            );
+          }
+
+          const unitPrice = item.price
+            ? new Prisma.Decimal(item.price)
+            : product.salePrice;
+          const lineTotal = unitPrice.mul(item.quantity);
+          totalAmount = totalAmount.add(lineTotal);
+
+          saleItemsData.push({
+            productId: product.id,
+            productName: product.name,
+            quantity: item.quantity,
+            unitPrice,
+            lineTotal,
+            // Sale ke waqt ki cost snapshot — product baad mein archive/delete
+            // ya cost edit ho jaye to bhi is sale ka profit kabhi na badle
+            costPrice: product.costPrice,
+            productUnitId: null,
+          });
+
+          await tx.product.update({
+            where: { id: product.id },
+            data: { stockQty: { decrement: item.quantity } },
+          });
         }
-
-        const lineTotal = product.salePrice.mul(item.quantity);
-        totalAmount = totalAmount.add(lineTotal);
-
-        saleItemsData.push({
-          productId: product.id,
-          productName: product.name,
-          quantity: item.quantity,
-          unitPrice: product.salePrice,
-          lineTotal,
-        });
-
-        await tx.product.update({
-          where: { id: product.id },
-          data: { stockQty: { decrement: item.quantity } },
-        });
       }
 
       if (dto.paymentMethod === PaymentMethod.CASH) {
         if (dto.cashReceived === undefined) {
-          throw new BadRequestException('cashReceived is required for cash payments.');
+          throw new BadRequestException(
+            'cashReceived is required for cash payments.',
+          );
         }
         if (dto.cashReceived < Number(totalAmount)) {
           throw new BadRequestException(
@@ -96,20 +158,62 @@ export class SalesService extends TenantScopedService {
         include: { items: true },
       });
 
+      for (const unitId of unitsToMarkSold) {
+        await tx.productUnit.update({
+          where: { id: unitId },
+          data: { status: UnitStatus.SOLD },
+        });
+      }
+
       return sale;
     });
+
+    // Salesman ko apne hi checkout ki receipt mein bhi costPrice/profit nazar
+    // nahi aana chahiye — sirf ADMIN dekh sakta hai.
+    if (role !== 'ADMIN') {
+      return {
+        ...createdSale,
+        items: createdSale.items.map((item) => ({ ...item, costPrice: null })),
+      };
+    }
+    return createdSale;
   }
 
   async findAll(businessId: string) {
     this.assertTenant(businessId);
-    return this.prisma.sale.findMany({
+    const sales = await this.prisma.sale.findMany({
       where: { businessId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { items: true },
     });
+
+    // cashierId se naam resolve karte hain (same pattern jo getDashboard()
+    // mein already istemal hoti hai) — Sale/cashierId par koi Prisma relation
+    // nahi hai, isliye ek alag lookup query
+    const cashierIds = Array.from(new Set(sales.map((s) => s.cashierId)));
+    const cashiers = await this.prisma.user.findMany({
+      where: { id: { in: cashierIds } },
+      select: { id: true, fullName: true },
+    });
+    const cashierNameMap = new Map(cashiers.map((c) => [c.id, c.fullName]));
+
+    return sales.map((s) => ({
+      ...s,
+      cashierName: cashierNameMap.get(s.cashierId) ?? 'Unknown',
+    }));
   }
 
-  async remove(businessId: string, saleId: string) {
+  // "Archive" — hides a sale from Sales History only. Revenue, profit, the
+  // sale/items themselves, and inventory/unit status are never touched here.
+  // This is deliberately NOT a Return: nothing is reversed, nothing is
+  // restored to stock. Every archive is written to SaleAuditLog, which
+  // application code only ever inserts into, never updates or deletes.
+  async archive(
+    businessId: string,
+    saleId: string,
+    performedBy: string,
+    reason?: string,
+  ) {
     this.assertTenant(businessId);
 
     const sale = await this.prisma.sale.findFirst({
@@ -120,10 +224,25 @@ export class SalesService extends TenantScopedService {
       throw new NotFoundException('Sale not found.');
     }
 
-    await this.prisma.sale.update({
-      where: { id: saleId },
-      data: { deletedAt: new Date() },
-    });
+    await this.prisma.$transaction([
+      this.prisma.sale.update({
+        where: { id: saleId },
+        data: {
+          deletedAt: new Date(),
+          archivedBy: performedBy,
+          archiveReason: reason ?? null,
+        },
+      }),
+      this.prisma.saleAuditLog.create({
+        data: {
+          businessId,
+          saleId,
+          action: 'ARCHIVE',
+          reason: reason ?? null,
+          performedBy,
+        },
+      }),
+    ]);
 
     return { success: true };
   }
@@ -131,6 +250,10 @@ export class SalesService extends TenantScopedService {
   async getSummary(businessId: string) {
     this.assertTenant(businessId);
 
+    // Archived sales are only hidden from the visible Sales History list —
+    // Revenue/Profit are permanent financial records and must never shrink
+    // just because a sale was archived, so this query deliberately does NOT
+    // filter by deletedAt.
     const sales = await this.prisma.sale.findMany({
       where: { businessId },
       include: { items: true },
@@ -144,22 +267,10 @@ export class SalesService extends TenantScopedService {
     monthStart.setHours(0, 0, 0, 0);
 
     let totalRevenue = 0;
+    let totalCost = 0;
     let totalItemsSold = 0;
     let todayRevenue = 0;
     let monthRevenue = 0;
-
-    const productIds = new Set<string>();
-    for (const sale of sales) {
-      for (const item of sale.items) {
-        productIds.add(item.productId);
-      }
-    }
-
-    const products = await this.prisma.product.findMany({
-      where: { id: { in: Array.from(productIds) } },
-      select: { id: true, costPrice: true },
-    });
-    const costMap = new Map(products.map((p) => [p.id, Number(p.costPrice)]));
 
     let totalProfit = 0;
 
@@ -186,15 +297,19 @@ export class SalesService extends TenantScopedService {
 
       for (const item of sale.items) {
         totalItemsSold += item.quantity;
-        const cost = costMap.get(item.productId) ?? 0;
-        const profit = (Number(item.unitPrice) - cost) * item.quantity;
-        totalProfit += profit;
+        // costPrice sale ke waqt snapshot ki gayi hai — kabhi live Product se
+        // dobara nahi nikaalte, taake product archive/delete/edit ho jaye to
+        // bhi purana profit kabhi na badle
+        const cost = Number(item.costPrice) * item.quantity;
+        totalCost += cost;
+        totalProfit += Number(item.lineTotal) - cost;
       }
     }
 
     return {
       totalSales: sales.length,
       totalRevenue: totalRevenue.toFixed(2),
+      totalCost: totalCost.toFixed(2),
       totalProfit: totalProfit.toFixed(2),
       totalItemsSold,
       todayRevenue: todayRevenue.toFixed(2),
@@ -224,6 +339,7 @@ export class SalesService extends TenantScopedService {
     const prevRangeStart = new Date(rangeStart);
     prevRangeStart.setDate(prevRangeStart.getDate() - days);
 
+    // Archived sales stay in these figures — see getSummary() above for why.
     const rangeSales = await this.prisma.sale.findMany({
       where: { businessId, createdAt: { gte: rangeStart } },
       include: { items: true },
@@ -240,8 +356,12 @@ export class SalesService extends TenantScopedService {
     const products = await this.prisma.product.findMany({
       where: { businessId, isActive: true },
     });
-    const costMap = new Map(products.map((p) => [p.id, Number(p.costPrice)]));
     const nameMap = new Map(products.map((p) => [p.id, p.name]));
+
+    // Phones ka asal stock ProductUnit rows mein hai, Product.stockQty mein nahi
+    const productUnits = await this.prisma.productUnit.findMany({
+      where: { businessId },
+    });
 
     const cashierIds = Array.from(new Set(rangeSales.map((s) => s.cashierId)));
     const cashiers = await this.prisma.user.findMany({
@@ -251,6 +371,7 @@ export class SalesService extends TenantScopedService {
     const cashierNameMap = new Map(cashiers.map((c) => [c.id, c.fullName]));
 
     let periodRevenue = 0;
+    let periodCost = 0;
     let periodProfit = 0;
     const periodSales = rangeSales.length;
 
@@ -315,9 +436,12 @@ export class SalesService extends TenantScopedService {
       cashierStats.set(sale.cashierId, cashierEntry);
 
       for (const item of sale.items) {
-        const cost = costMap.get(item.productId) ?? 0;
-        const itemProfit = (Number(item.unitPrice) - cost) * item.quantity;
+        // costPrice sale ke waqt snapshot ki gayi hai — live Product state
+        // (archived/deleted/edited) profit ko kabhi affect nahi karti
+        const itemCost = Number(item.costPrice) * item.quantity;
+        const itemProfit = Number(item.lineTotal) - itemCost;
         trendEntry.profit += itemProfit;
+        periodCost += itemCost;
         periodProfit += itemProfit;
 
         const pStat: ProductStat = productStats.get(item.productId) ?? {
@@ -359,12 +483,33 @@ export class SalesService extends TenantScopedService {
           ? 100
           : 0;
 
-    const inventoryValue = products.reduce(
-      (sum, p) => sum + Number(p.costPrice) * p.stockQty,
-      0,
-    );
+    // Total Products = product definitions (models). Total Inventory = every
+    // physical device ever recorded (any status) + current accessory stockQty —
+    // these are two different numbers and must not be confused. Available/Sold
+    // are the IN_STOCK/SOLD breakdown of that same Total Inventory figure.
+    const availableDevices = productUnits.filter(
+      (u) => u.status === 'IN_STOCK',
+    ).length;
+    const soldDevices = productUnits.filter((u) => u.status === 'SOLD').length;
+    const totalProducts = products.length;
+    const accessoryQty = products
+      .filter((p) => !p.isSerialized)
+      .reduce((sum, p) => sum + p.stockQty, 0);
+    const totalInventory = productUnits.length + accessoryQty;
+
+    // Inventory Value cost price se — kabhi selling price se nahi
+    const inventoryValue =
+      productUnits
+        .filter((u) => u.status === 'IN_STOCK')
+        .reduce((sum, u) => sum + Number(u.costPrice), 0) +
+      products
+        .filter((p) => !p.isSerialized)
+        .reduce((sum, p) => sum + Number(p.costPrice) * p.stockQty, 0);
+
+    // Serialized (phone) products stock IMEI units se count hota hai,
+    // isliye ye kabhi "Low Stock" mein nahi ginte.
     const lowStockProducts = products
-      .filter((p) => p.stockQty <= p.reorderLevel)
+      .filter((p) => !p.isSerialized && p.stockQty <= p.reorderLevel)
       .map((p) => ({
         id: p.id,
         name: p.name,
@@ -375,9 +520,14 @@ export class SalesService extends TenantScopedService {
     return {
       kpis: {
         periodRevenue: periodRevenue.toFixed(2),
+        periodCost: periodCost.toFixed(2),
         periodProfit: periodProfit.toFixed(2),
         periodSales,
         avgSaleValue: avgSaleValue.toFixed(2),
+        totalProducts,
+        totalInventory,
+        availableDevices,
+        soldDevices,
         inventoryValue: inventoryValue.toFixed(2),
         lowStockCount: lowStockProducts.length,
         revenueChangePct: revenueChangePct.toFixed(1),

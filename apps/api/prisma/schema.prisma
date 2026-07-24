@@ -9,8 +9,7 @@ datasource db {
 
 enum Role {
   ADMIN
-  MANAGER
-  CASHIER
+  SALESMAN
 }
 
 enum PaymentMethod {
@@ -20,6 +19,26 @@ enum PaymentMethod {
   BANK_TRANSFER
 }
 
+enum PtaStatus {
+  PTA
+  NON_PTA
+  JV
+}
+
+enum UnitStatus {
+  IN_STOCK
+  SOLD
+  RESERVED
+}
+
+enum DeviceCondition {
+  BRAND_NEW
+  OPEN_BOX
+  USED
+  REFURBISHED
+  CPO
+}
+
 model Business {
   id        String   @id @default(cuid())
   name      String
@@ -27,11 +46,14 @@ model Business {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  outlets    Outlet[]
-  users      User[]
-  categories Category[]
-  products   Product[]
-  sales      Sale[]
+  outlets      Outlet[]
+  users        User[]
+  categories   Category[]
+  models       Model[]
+  products     Product[]
+  sales        Sale[]
+  productUnits ProductUnit[]
+  saleAuditLogs SaleAuditLog[]
 }
 
 model Outlet {
@@ -55,7 +77,7 @@ model User {
   email        String
   passwordHash String
   fullName     String
-  role         Role    @default(CASHIER)
+  role         Role    @default(SALESMAN)
   isActive     Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -84,23 +106,55 @@ model RefreshToken {
 }
 
 model Category {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  slug        String?
+  description String?
+  isActive    Boolean  @default(true)
+  // true = is products yahan IMEI se track hote hain (Product + ProductUnit
+  // dono banti hain), false = simple accessory (Product hi kaafi hai)
+  isSerialized Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  products Product[]
+  models   Model[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+}
+
+// Category IS the brand (Samsung, Apple, Oppo, Google Pixel...). A Model is a
+// specific device line under that brand (Galaxy S24 Ultra, iPhone 15 Pro).
+// Only meaningful for serialized (isSerialized) categories — accessory
+// categories never have Models, Products attach to them directly.
+model Model {
   id         String   @id @default(cuid())
   businessId String
+  categoryId String?
   name       String
+  isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  // Category delete kabhi Model delete nahi karti — categoryId null ho jaata
+  // hai (SetNull), Model aur uske Products intact rehte hain.
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   products Product[]
 
-  @@unique([businessId, name])
+  @@unique([categoryId, name])
   @@index([businessId])
+  @@index([categoryId])
 }
 
 model Product {
   id           String   @id @default(cuid())
   businessId   String
   categoryId   String?
+  modelId      String?
   name         String
   sku          String
   barcode      String?
@@ -112,12 +166,76 @@ model Product {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  // Mobile shop ke liye — serialized inventory (IMEI-based). Category.isSerialized
+  // se derive hota hai creation ke waqt; yahan bhi rakha hai taake sales/inventory
+  // ki mojooda saari logic (jo isSerialized use karti hai) bina tooṛe chalti rahe.
+  isSerialized Boolean @default(false)
+  storage      String?
+  color        String?
+  compatibility String?
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  // Category delete kabhi Product delete nahi karti — categoryId null ho
+  // jaata hai (SetNull); Product, Inventory, IMEIs, Sales History intact
+  // rehte hain, sirf category link chala jaata hai.
+  category Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  model    Model?        @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  units    ProductUnit[]
 
   @@unique([businessId, sku])
   @@index([businessId])
   @@index([categoryId])
+  @@index([modelId])
+  @@index([businessId, isActive])
+  @@index([businessId, createdAt])
+}
+
+// Har physical phone ka alag record — IMEI, condition, battery, price sab alag
+model ProductUnit {
+  id         String @id @default(cuid())
+  businessId String
+  productId  String
+
+  // Ek device IMEI ya serial number se identify hota hai — dono optional hain
+  // schema level par (Postgres multiple NULLs allow karta hai unique index mein),
+  // lekin service layer enforce karti hai ke kam se kam ek zaroor ho.
+  imei1        String?
+  imei2        String?
+  serialNumber String?
+
+  ram             String?
+  storage         String?
+  color           String?
+  conditionGrade  Int?
+  batteryHealth   Int?
+  ptaStatus       PtaStatus?
+  deviceCondition DeviceCondition @default(BRAND_NEW)
+  isNew           Boolean    @default(false)
+  faceIdWorking   Boolean?
+  screenOriginal  Boolean?
+  boxIncluded     Boolean    @default(false)
+  chargerIncluded Boolean    @default(false)
+  warrantyDays    Int        @default(0)
+  supplier        String?
+
+  costPrice Decimal    @db.Decimal(12, 2)
+  salePrice Decimal    @db.Decimal(12, 2)
+  status    UnitStatus @default(IN_STOCK)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, imei1])
+  @@unique([businessId, serialNumber])
+  @@index([businessId])
+  @@index([productId])
+  @@index([status])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
 }
 
 model Sale {
@@ -127,9 +245,13 @@ model Sale {
   cashierId   String
   totalAmount Decimal   @db.Decimal(12, 2)
   createdAt   DateTime  @default(now())
+  // deletedAt != null == "archived" — hidden from Sales History only. Revenue/
+  // Profit queries (getSummary/getDashboard) deliberately ignore this field,
+  // since they read from the permanent financial record, not the visible list.
   deletedAt   DateTime?
+  archivedBy    String?
+  archiveReason String?
   dailyInvoiceNumber Int @default(0)
-
 
   // Payment details
   paymentMethod   PaymentMethod
@@ -139,11 +261,30 @@ model Sale {
   cardLastFour    String?
   referenceNumber String?
 
-  business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  items    SaleItem[]
+  business  Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  items     SaleItem[]
+  auditLogs SaleAuditLog[]
 
   @@index([businessId])
   @@index([createdAt])
+}
+
+// Immutable append-only trail of archive actions — never updated or deleted
+// by normal application code, only ever inserted into.
+model SaleAuditLog {
+  id          String   @id @default(cuid())
+  businessId  String
+  saleId      String
+  action      String
+  reason      String?
+  performedBy String
+  createdAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sale     Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([saleId])
 }
 
 model SaleItem {
@@ -154,6 +295,13 @@ model SaleItem {
   quantity    Int
   unitPrice   Decimal @db.Decimal(12, 2)
   lineTotal   Decimal @db.Decimal(12, 2)
+
+  // Cost Price sale ke waqt snapshot ki gayi hai (ProductUnit ya Product se) —
+  // taake baad mein product edit/archive/delete hone se purana profit kabhi na badle
+  costPrice   Decimal @db.Decimal(12, 2)
+
+  // Agar serialized product (phone) becha gaya, to IMEI record ka reference
+  productUnitId String?
 
   sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
 

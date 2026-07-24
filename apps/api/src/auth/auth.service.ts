@@ -11,7 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
 import { RegisterBusinessDto } from './dto/register-business.dto';
 import { LoginDto } from './dto/login.dto';
-import { JwtPayload } from '../common/types/auth.types';
+import { JwtPayload, AuthenticatedUser } from '../common/types/auth.types';
 
 @Injectable()
 export class AuthService {
@@ -131,6 +131,20 @@ export class AuthService {
       role: payload.role,
       outletId: payload.outletId,
     });
+  }
+
+  // ---------- ME (profile header/menu ke liye fullName/email chahiye —
+  // JWT payload mein qasdan nahi hote, isliye ek chhoti si DB lookup) ----------
+  async getMe(user: AuthenticatedUser) {
+    const dbUser = await this.prisma.user.findUnique({
+      where: { id: user.userId },
+      select: { fullName: true, email: true },
+    });
+    return {
+      ...user,
+      fullName: dbUser?.fullName ?? '',
+      email: dbUser?.email ?? '',
+    };
   }
 
   // ---------- 4. LOGOUT (naya) ----------

@@ -33,7 +33,9 @@ export class StaffService extends TenantScopedService {
       where: { businessId, email: dto.email },
     });
     if (existing) {
-      throw new ConflictException('This email is already used in your business.');
+      throw new ConflictException(
+        'This email is already used in your business.',
+      );
     }
 
     const passwordHash = await argon2.hash(dto.password);

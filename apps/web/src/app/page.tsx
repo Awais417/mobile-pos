@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { tokenStorage } from '@/lib/token-storage';
 import { getCurrentUser } from '@/lib/auth';
+import { Loader2Icon } from '@/components/icons';
 
 export default function HomePage() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function HomePage() {
     // Token hai = user ka role dekh kar sahi page pe bhejo
     getCurrentUser()
       .then((user) => {
-        if (user.role === 'CASHIER') {
+        if (user.role === 'SALESMAN') {
           router.replace('/terminal');
         } else {
           router.replace('/dashboard');
@@ -36,8 +37,11 @@ export default function HomePage() {
 
   // Redirect hone tak ek loading screen
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <p className="text-gray-500">Loading...</p>
+    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2Icon className="h-6 w-6 animate-spin text-slate-400" />
+        <p className="text-sm text-slate-500">Loading...</p>
+      </div>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsEnum,
+  IsPositive,
   Min,
   ValidateNested,
   ValidateIf,
@@ -23,6 +24,19 @@ export class SaleItemDto {
   @IsInt()
   @Min(1)
   quantity!: number;
+
+  // Sirf phone (IMEI-based) product bechte waqt bhejein
+  @ApiProperty({ required: false, example: 'productunit-id-here' })
+  @IsOptional()
+  @IsString()
+  productUnitId?: string;
+
+  // Negotiated/final price — agar dukaandar deal ke waqt price change kare
+  @ApiProperty({ required: false, example: 45000 })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  price?: number;
 }
 
 export class CreateSaleDto {

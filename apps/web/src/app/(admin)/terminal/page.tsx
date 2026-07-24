@@ -1,0 +1,1518 @@
+'use client';
+
+import { useEffect, useState, FormEvent, useRef } from 'react';
+import { getProducts, Product } from '@/lib/products';
+import { getCategories, Category } from '@/lib/categories';
+import { createSale, Sale, PaymentMethod } from '@/lib/sales';
+import {
+  getProductUnits,
+  searchByImei,
+  ProductUnit,
+  DeviceCondition,
+} from '@/lib/product-units';
+import { formatCurrency, formatNumber } from '@/lib/format';
+import { Modal } from '@/components/ui/Modal';
+import { Drawer } from '@/components/ui/Drawer';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { PriceDisplay } from '@/components/ui/PriceDisplay';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SkeletonCard } from '@/components/ui/Skeletons';
+import { PageHeader } from '@/components/ui/PageHeader';
+import {
+  AlertTriangleIcon,
+  CheckCircleIcon,
+  CreditCardIcon,
+  InboxIcon,
+  LandmarkIcon,
+  Loader2Icon,
+  MinusIcon,
+  PencilIcon,
+  PlusIcon,
+  PrinterIcon,
+  SearchIcon,
+  ShoppingCartIcon,
+  SmartphoneIcon,
+  Trash2Icon,
+  WalletIcon,
+  XIcon,
+} from '@/components/icons';
+
+interface CartItem {
+  key: string;
+  product: Product;
+  unit?: ProductUnit;
+  quantity: number;
+  /** Numeric price used for all calculations — 0 while the price input is empty/invalid. */
+  price: number;
+  /** Raw text shown in the price input, kept separate from `price` so clearing the field doesn't get forced back to "0". */
+  priceInput: string;
+  /** Becomes true on blur (or a checkout attempt) — gates when the "required" error is shown. */
+  priceTouched: boolean;
+}
+
+const WALLET_PROVIDERS = [
+  'JazzCash',
+  'Easypaisa',
+  'Sadapay',
+  'NayaPay',
+  'Other',
+];
+
+const CONDITION_LABELS: Record<DeviceCondition, string> = {
+  BRAND_NEW: 'Brand New',
+  OPEN_BOX: 'Open Box',
+  USED: 'Used',
+  REFURBISHED: 'Refurbished',
+  CPO: 'CPO',
+};
+
+export default function TerminalPage() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [lastAdded, setLastAdded] = useState<string | null>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [receipt, setReceipt] = useState<Sale | null>(null);
+  const [editingReceipt, setEditingReceipt] = useState(false);
+  const [editMessage, setEditMessage] = useState<string | null>(null);
+  const [closingReceipt, setClosingReceipt] = useState(false);
+  const [printingReceipt, setPrintingReceipt] = useState(false);
+  const [search, setSearch] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showMobileCart, setShowMobileCart] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const receiptModalRef = useRef<HTMLDivElement>(null);
+  const receiptCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const priceInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Device picker (jab phone/serialized product select ho)
+  const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
+  const [pickerUnits, setPickerUnits] = useState<ProductUnit[]>([]);
+  const [loadingUnits, setLoadingUnits] = useState(false);
+
+  // Payment modal state
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
+  const [cashReceived, setCashReceived] = useState('');
+  const [provider, setProvider] = useState(WALLET_PROVIDERS[0]);
+  const [bankName, setBankName] = useState('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  async function loadData() {
+    try {
+      const [prods, cats] = await Promise.all([
+        getProducts({ inStockOnly: true }),
+        getCategories({ activeOnly: true }),
+      ]);
+      setProducts(prods);
+      setCategories(cats);
+    } catch {
+      setMessage('Unable to load products. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Accessory (quantity-based) ya phone (unit-based) — dono handle karta hai.
+  // Accessory ki quantity kabhi stockQty se zyada nahi jaati (frontend guard).
+  function addToCart(product: Product, unit?: ProductUnit) {
+    if (product.isSerialized) {
+      if (!unit) return;
+      const key = `unit-${unit.id}`;
+      setCart((prev) => {
+        if (prev.some((c) => c.key === key)) return prev; // ek hi phone dobara add nahi hoga
+        const defaultPrice = Number(unit.salePrice);
+        return [
+          ...prev,
+          {
+            key,
+            product,
+            unit,
+            quantity: 1,
+            price: defaultPrice,
+            priceInput: String(defaultPrice),
+            priceTouched: false,
+          },
+        ];
+      });
+      setLastAdded(`${product.name} (IMEI: ${unit.imei1})`);
+      return;
+    }
+
+    const key = product.id;
+    setCart((prev) => {
+      const existing = prev.find((c) => c.key === key);
+      if (existing) {
+        return prev.map((c) =>
+          c.key === key
+            ? { ...c, quantity: Math.min(c.quantity + 1, product.stockQty) }
+            : c,
+        );
+      }
+      const defaultPrice = Number(product.salePrice);
+      return [
+        ...prev,
+        {
+          key,
+          product,
+          quantity: 1,
+          price: defaultPrice,
+          priceInput: String(defaultPrice),
+          priceTouched: false,
+        },
+      ];
+    });
+    setLastAdded(product.name);
+  }
+
+  async function openUnitPicker(product: Product) {
+    setPickerProduct(product);
+    setLoadingUnits(true);
+    try {
+      const units = await getProductUnits({
+        productId: product.id,
+        status: 'IN_STOCK',
+      });
+      setPickerUnits(units);
+    } catch {
+      setPickerUnits([]);
+    } finally {
+      setLoadingUnits(false);
+    }
+  }
+
+  function handleProductClick(product: Product) {
+    if (product.isSerialized) {
+      if ((product.availableUnits ?? 0) === 0) return; // Out of stock — not sellable
+      openUnitPicker(product);
+    } else {
+      if (product.stockQty === 0) return; // Out of stock — not sellable
+      addToCart(product);
+    }
+  }
+
+  function selectUnitFromPicker(unit: ProductUnit) {
+    if (!pickerProduct) return;
+    addToCart(pickerProduct, unit);
+    setPickerProduct(null);
+    setPickerUnits([]);
+  }
+
+  // Ek hi search box — har keystroke par products live-filter hote hain (neeche),
+  // aur Enter dabane par exact IMEI ya SKU/barcode match seedha cart mein add
+  // ho jaata hai (purani "scan" flow ka logic, bas ab alag box nahi).
+  async function handleSearchSubmit(e: FormEvent) {
+    e.preventDefault();
+    const code = search.trim();
+    if (!code) return;
+
+    setSearching(true);
+    try {
+      const unit = await searchByImei(code);
+      if (unit) {
+        if (unit.status !== 'IN_STOCK') {
+          setMessage(
+            `This device (IMEI: ${unit.imei1}) is no longer available (${unit.status}). Select another device.`,
+          );
+          setLastAdded(null);
+        } else {
+          const product = products.find((p) => p.id === unit.productId);
+          if (product) {
+            addToCart(product, unit);
+            setMessage(null);
+            setSearch('');
+          } else {
+            setMessage(
+              'Device found but product data is missing. Refresh and try again.',
+            );
+          }
+        }
+        return;
+      }
+
+      const lower = code.toLowerCase();
+      const found = products.find(
+        (p) =>
+          !p.isSerialized &&
+          ((p.barcode && p.barcode.toLowerCase() === lower) ||
+            p.sku.toLowerCase() === lower),
+      );
+
+      if (found) {
+        if (found.stockQty === 0) {
+          setMessage(`"${found.name}" is out of stock.`);
+          setLastAdded(null);
+        } else {
+          addToCart(found);
+          setMessage(null);
+          setSearch('');
+        }
+      }
+      // Koi exact IMEI/SKU match na mile to koi error nahi — niche wali grid
+      // ka live substring filter pehle se hi relevant results dikha raha hai
+    } finally {
+      setSearching(false);
+      searchRef.current?.focus();
+    }
+  }
+
+  function changeQty(key: string, delta: number) {
+    setCart((prev) =>
+      prev
+        .map((c) => {
+          if (c.key !== key) return c;
+          const next = c.quantity + delta;
+          const capped = delta > 0 ? Math.min(next, c.product.stockQty) : next;
+          return { ...c, quantity: capped };
+        })
+        .filter((c) => c.quantity > 0),
+    );
+  }
+
+  function changePrice(key: string, value: string) {
+    const num = parseFloat(value);
+    setCart((prev) =>
+      prev.map((c) =>
+        c.key === key
+          ? { ...c, priceInput: value, price: isNaN(num) ? 0 : num }
+          : c,
+      ),
+    );
+  }
+
+  function markPriceTouched(key: string) {
+    setCart((prev) =>
+      prev.map((c) => (c.key === key ? { ...c, priceTouched: true } : c)),
+    );
+  }
+
+  function focusAndSelectPrice(key: string) {
+    const el = priceInputRefs.current[key];
+    if (!el) return;
+    el.focus();
+    el.select();
+  }
+
+  function removeItem(key: string) {
+    setCart((prev) => prev.filter((c) => c.key !== key));
+  }
+
+  function clearCart() {
+    setCart([]);
+    setLastAdded(null);
+  }
+
+  function requestClearCart() {
+    if (cart.length === 0) return;
+    setShowClearConfirm(true);
+  }
+
+  function confirmClearCart() {
+    clearCart();
+    setShowClearConfirm(false);
+    setShowMobileCart(false);
+    searchRef.current?.focus();
+  }
+
+  const total = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
+  const hasInvalidPrice = cart.some((c) => !(c.price > 0));
+
+  const filteredProducts = products.filter((p) => {
+    if (categoryFilter !== 'ALL' && p.categoryId !== categoryFilter)
+      return false;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      p.name.toLowerCase().includes(q) ||
+      p.sku.toLowerCase().includes(q) ||
+      (p.category?.name ?? '').toLowerCase().includes(q) ||
+      (p.model?.name ?? '').toLowerCase().includes(q) ||
+      (p.storage ?? '').toLowerCase().includes(q) ||
+      (p.color ?? '').toLowerCase().includes(q)
+    );
+  });
+
+  function openPaymentModal() {
+    if (cart.length === 0) return;
+    if (hasInvalidPrice) {
+      setCart((prev) => prev.map((c) => ({ ...c, priceTouched: true })));
+      return;
+    }
+    setPaymentMethod('CASH');
+    setCashReceived(total.toFixed(2));
+    setProvider(WALLET_PROVIDERS[0]);
+    setBankName('');
+    setPaymentError(null);
+    setShowPayment(true);
+  }
+
+  const cashReceivedNum = parseFloat(cashReceived) || 0;
+
+  async function handleConfirmPayment() {
+    setPaymentError(null);
+
+    if (paymentMethod === 'CASH') {
+      if (!cashReceived || cashReceivedNum < total) {
+        setPaymentError(
+          'The full payment must be received before completing the sale.',
+        );
+        return;
+      }
+    }
+
+    setCheckingOut(true);
+    try {
+      const sale = await createSale({
+        items: cart.map((c) =>
+          c.unit
+            ? {
+                productId: c.product.id,
+                quantity: 1,
+                productUnitId: c.unit.id,
+                price: c.price,
+              }
+            : {
+                productId: c.product.id,
+                quantity: c.quantity,
+                price: c.price,
+              },
+        ),
+        paymentMethod,
+        cashReceived: paymentMethod === 'CASH' ? cashReceivedNum : undefined,
+        provider: paymentMethod === 'ONLINE_WALLET' ? provider : undefined,
+        bankName: paymentMethod === 'BANK_TRANSFER' ? bankName : undefined,
+      });
+      setReceipt(sale);
+      setEditingReceipt(false);
+      setEditMessage(null);
+      clearCart();
+      setShowPayment(false);
+      setShowMobileCart(false);
+      await loadData();
+    } catch (err) {
+      setPaymentError(
+        err instanceof Error
+          ? err.message
+          : 'The sale could not be completed. Review the payment details and try again.',
+      );
+    } finally {
+      setCheckingOut(false);
+    }
+  }
+
+  function closeReceiptModal() {
+    setClosingReceipt(true);
+    setTimeout(() => {
+      setReceipt(null);
+      setEditingReceipt(false);
+      setEditMessage(null);
+      setClosingReceipt(false);
+      // Cashier ko wapas product search par le jao — agla sale turant shuru ho sake
+      searchRef.current?.focus();
+    }, 180);
+  }
+
+  function handlePrintReceipt() {
+    if (printingReceipt) return;
+    setPrintingReceipt(true);
+
+    function handleAfterPrint() {
+      window.removeEventListener('afterprint', handleAfterPrint);
+      setPrintingReceipt(false);
+      closeReceiptModal();
+    }
+
+    window.addEventListener('afterprint', handleAfterPrint);
+    window.print();
+  }
+
+  function removeReceiptItem(itemId: string) {
+    if (!receipt) return;
+    const newItems = receipt.items.filter((i) => i.id !== itemId);
+    const newTotal = newItems.reduce(
+      (sum, i) => sum + parseFloat(i.lineTotal),
+      0,
+    );
+    setReceipt({
+      ...receipt,
+      items: newItems,
+      totalAmount: newTotal.toFixed(2),
+    });
+  }
+
+  function changeReceiptQty(itemId: string, delta: number) {
+    if (!receipt) return;
+    if (delta > 0) {
+      const item = receipt.items.find((i) => i.id === itemId);
+      if (item) {
+        const product = products.find((p) => p.id === item.productId);
+        const available = product ? product.stockQty : 0;
+        if (item.quantity >= available) {
+          setEditMessage(
+            `Only ${available} in stock for "${item.productName}".`,
+          );
+          return;
+        }
+      }
+    }
+    setEditMessage(null);
+    const newItems = receipt.items
+      .map((i) => {
+        if (i.id !== itemId) return i;
+        const newQty = i.quantity + delta;
+        if (newQty <= 0) return null;
+        const unit = parseFloat(i.unitPrice);
+        return {
+          ...i,
+          quantity: newQty,
+          lineTotal: (unit * newQty).toFixed(2),
+        };
+      })
+      .filter((i): i is NonNullable<typeof i> => i !== null);
+    const newTotal = newItems.reduce(
+      (sum, i) => sum + parseFloat(i.lineTotal),
+      0,
+    );
+    setReceipt({
+      ...receipt,
+      items: newItems,
+      totalAmount: newTotal.toFixed(2),
+    });
+  }
+
+  function addReceiptItem(product: Product) {
+    if (!receipt) return;
+    if (product.stockQty === 0) {
+      setEditMessage(`"${product.name}" is out of stock.`);
+      return;
+    }
+    const existing = receipt.items.find((i) => i.productId === product.id);
+    if (existing && existing.quantity >= product.stockQty) {
+      setEditMessage(
+        `Only ${product.stockQty} in stock for "${product.name}".`,
+      );
+      return;
+    }
+    setEditMessage(null);
+    let newItems;
+    if (existing) {
+      newItems = receipt.items.map((i) =>
+        i.productId === product.id
+          ? {
+              ...i,
+              quantity: i.quantity + 1,
+              lineTotal: (parseFloat(i.unitPrice) * (i.quantity + 1)).toFixed(
+                2,
+              ),
+            }
+          : i,
+      );
+    } else {
+      newItems = [
+        ...receipt.items,
+        {
+          id: `temp-${product.id}-${crypto.randomUUID()}`,
+          productId: product.id,
+          productName: product.name,
+          quantity: 1,
+          unitPrice: product.salePrice,
+          lineTotal: product.salePrice,
+          // Ye local receipt-edit item hai (kabhi API ko nahi jaata) — costPrice
+          // sirf SaleItem type ko satisfy karne ke liye, display-only hai
+          costPrice: product.costPrice ?? '0',
+        },
+      ];
+    }
+    const newTotal = newItems.reduce(
+      (sum, i) => sum + parseFloat(i.lineTotal),
+      0,
+    );
+    setReceipt({
+      ...receipt,
+      items: newItems,
+      totalAmount: newTotal.toFixed(2),
+    });
+  }
+
+  // Escape-to-close + focus trap for the receipt/edit dialog
+  useEffect(() => {
+    if (!receipt) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    receiptCloseButtonRef.current?.focus();
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeReceiptModal();
+        return;
+      }
+      if (e.key === 'Tab' && receiptModalRef.current) {
+        const focusable = receiptModalRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receipt]);
+
+  const paymentMethods: {
+    key: PaymentMethod;
+    label: string;
+    icon: typeof WalletIcon;
+  }[] = [
+    { key: 'CASH', label: 'Cash', icon: WalletIcon },
+    { key: 'CARD', label: 'Card', icon: CreditCardIcon },
+    { key: 'ONLINE_WALLET', label: 'Mobile Wallet', icon: SmartphoneIcon },
+    { key: 'BANK_TRANSFER', label: 'Bank Transfer', icon: LandmarkIcon },
+  ];
+
+  // Cart body reused for both the desktop sticky panel and the mobile drawer
+  function renderCartBody() {
+    return (
+      <>
+        {cart.length === 0 ? (
+          <EmptyState
+            icon={ShoppingCartIcon}
+            title="Your cart is empty"
+            description="Search and select a product to begin a new sale."
+          />
+        ) : (
+          <>
+            <div className="max-h-[45vh] space-y-2 overflow-y-auto px-4 py-3 lg:max-h-[38vh]">
+              {cart.map((c) => (
+                <div
+                  key={c.key}
+                  className="rounded-xl border border-slate-100 bg-slate-50/50 p-3"
+                >
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-slate-900">
+                        {c.product.name}
+                      </div>
+                      {c.unit ? (
+                        <div className="truncate font-mono text-xs text-slate-500">
+                          IMEI: {c.unit.imei1}
+                        </div>
+                      ) : (
+                        <div className="truncate text-xs text-slate-500">
+                          {c.price > 0
+                            ? `${formatCurrency(c.price)} each`
+                            : 'Price not set'}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removeItem(c.key)}
+                      aria-label={`Remove ${c.product.name}`}
+                      title="Remove"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {c.unit ? (
+                    // Phone — quantity fixed 1, price editable (negotiation)
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => focusAndSelectPrice(c.key)}
+                          className="flex items-center gap-1 text-xs text-slate-500 transition hover:text-primary"
+                        >
+                          <PencilIcon className="h-3 w-3" />
+                          Edit Price
+                        </button>
+                        <input
+                          ref={(el) => {
+                            priceInputRefs.current[c.key] = el;
+                          }}
+                          type="number"
+                          value={c.priceInput}
+                          onChange={(e) => changePrice(c.key, e.target.value)}
+                          onBlur={() => markPriceTouched(c.key)}
+                          placeholder="Enter selling price"
+                          aria-label={`Price for ${c.product.name}`}
+                          className={`w-28 shrink-0 rounded-lg border bg-white px-2 py-1 text-right text-sm font-bold text-slate-900 focus:outline-none ${
+                            c.priceTouched && !c.priceInput.trim()
+                              ? 'border-red-400 focus:border-red-500'
+                              : 'border-slate-200 focus:border-primary'
+                          }`}
+                        />
+                      </div>
+                      {c.priceTouched && !c.priceInput.trim() && (
+                        <p className="mt-1 text-right text-[11px] text-red-600">
+                          Selling price is required.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex shrink-0 items-center gap-1 rounded-lg bg-white p-1 shadow-sm">
+                          <button
+                            onClick={() => changeQty(c.key, -1)}
+                            aria-label={`Decrease quantity of ${c.product.name}`}
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-100"
+                          >
+                            <MinusIcon className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="w-8 text-center text-sm font-semibold text-slate-900">
+                            {c.quantity}
+                          </span>
+                          <button
+                            onClick={() => changeQty(c.key, 1)}
+                            disabled={c.quantity >= c.product.stockQty}
+                            aria-label={`Increase quantity of ${c.product.name}`}
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <PlusIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => focusAndSelectPrice(c.key)}
+                              className="flex items-center gap-1 text-xs text-slate-500 transition hover:text-primary"
+                            >
+                              <PencilIcon className="h-3 w-3" />
+                              Edit Price
+                            </button>
+                            <input
+                              ref={(el) => {
+                                priceInputRefs.current[c.key] = el;
+                              }}
+                              type="number"
+                              value={c.priceInput}
+                              onChange={(e) =>
+                                changePrice(c.key, e.target.value)
+                              }
+                              onBlur={() => markPriceTouched(c.key)}
+                              placeholder="Enter selling price"
+                              aria-label={`Price for ${c.product.name}`}
+                              className={`w-24 rounded-lg border bg-white px-2 py-1 text-right text-sm font-bold text-slate-900 focus:outline-none ${
+                                c.priceTouched && !c.priceInput.trim()
+                                  ? 'border-red-400 focus:border-red-500'
+                                  : 'border-slate-200 focus:border-primary'
+                              }`}
+                            />
+                          </div>
+                          {c.priceTouched && !c.priceInput.trim() && (
+                            <p className="text-[11px] text-red-600">
+                              Selling price is required.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <PriceDisplay value={c.price * c.quantity} size="md" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-slate-100 p-4">
+              <div className="mb-3 space-y-1.5">
+                <div className="flex justify-between text-sm text-slate-500">
+                  <span>Items</span>
+                  <span>{formatNumber(itemCount)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-slate-500">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(total)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-slate-100 pt-1.5">
+                  <span className="text-base font-semibold text-slate-900">
+                    Grand Total
+                  </span>
+                  <PriceDisplay value={total} size="xl" />
+                </div>
+              </div>
+              {hasInvalidPrice && (
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-600">
+                  <AlertTriangleIcon className="h-3.5 w-3.5 shrink-0" />
+                  Every item&apos;s price must be greater than zero.
+                </div>
+              )}
+              <button
+                onClick={openPaymentModal}
+                disabled={checkingOut || cart.length === 0 || hasInvalidPrice}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Proceed to Checkout
+              </button>
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className="p-4 pb-24 sm:p-6 lg:p-8 lg:pb-8">
+      <div className="mx-auto max-w-7xl">
+        <PageHeader
+          title="POS Terminal"
+          subtitle="Search, select, and complete sales."
+          actions={
+            cart.length > 0 ? (
+              <button
+                onClick={requestClearCart}
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+              >
+                <Trash2Icon className="h-4 w-4" />
+                Clear Cart
+              </button>
+            ) : undefined
+          }
+        />
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          {/* Product browsing area (~65-70%) */}
+          <div className="lg:col-span-8">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              {/* Search */}
+              <form onSubmit={handleSearchSubmit} className="relative">
+                <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  ref={searchRef}
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setMessage(null);
+                  }}
+                  placeholder="Search by category, model, storage, color, SKU, or IMEI..."
+                  autoFocus
+                  disabled={searching}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3.5 pl-11 pr-11 text-base text-slate-900 transition focus:border-primary focus:bg-white focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                />
+                {searching ? (
+                  <Loader2Icon className="pointer-events-none absolute right-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 animate-spin text-slate-400" />
+                ) : (
+                  search && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearch('');
+                        setMessage(null);
+                        searchRef.current?.focus();
+                      }}
+                      aria-label="Clear search"
+                      className="absolute right-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                  )
+                )}
+              </form>
+
+              {lastAdded && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700">
+                  <CheckCircleIcon className="h-4.5 w-4.5 shrink-0" />
+                  Added: {lastAdded}
+                </div>
+              )}
+              {message && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
+                  <AlertTriangleIcon className="h-4.5 w-4.5 shrink-0" />
+                  {message}
+                </div>
+              )}
+
+              {/* Category navigation — dynamically loaded, horizontally scrollable */}
+              {categories.length > 0 && (
+                <div className="scrollbar-thin mt-4 flex gap-2 overflow-x-auto pb-1">
+                  <button
+                    onClick={() => setCategoryFilter('ALL')}
+                    className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition ${
+                      categoryFilter === 'ALL'
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    All
+                  </button>
+                  {categories.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setCategoryFilter(c.id)}
+                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition ${
+                        categoryFilter === c.id
+                          ? 'bg-primary text-white shadow-sm'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Product grid */}
+            <div className="mt-4">
+              {loading ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <SkeletonCard key={i} className="h-32" />
+                  ))}
+                </div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <EmptyState
+                    icon={InboxIcon}
+                    title="No products found"
+                    description="Try a different product name, model, SKU, or IMEI."
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+                  {filteredProducts.map((p) => {
+                    // Serialized (phone) availability comes from IN_STOCK unit
+                    // count, not Product.stockQty — accessories use stockQty
+                    // directly. Same three visual states apply to both.
+                    const availableCount = p.isSerialized
+                      ? (p.availableUnits ?? 0)
+                      : p.stockQty;
+                    const out = availableCount === 0;
+                    const low = !out && availableCount <= p.reorderLevel;
+                    const inCartQty =
+                      cart.find((c) => c.key === p.id)?.quantity ?? 0;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => handleProductClick(p)}
+                        disabled={out}
+                        className="group relative flex h-full flex-col rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-primary/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:shadow-none"
+                      >
+                        {inCartQty > 0 && (
+                          <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white shadow-sm">
+                            {inCartQty}
+                          </span>
+                        )}
+                        <div className="truncate text-sm font-semibold text-slate-900">
+                          {p.name}
+                        </div>
+                        {p.isSerialized && (p.category?.name || p.storage) && (
+                          <div className="truncate text-[11px] text-slate-400">
+                            {[p.category?.name, p.model?.name, p.storage, p.color]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </div>
+                        )}
+                        {!p.isSerialized && p.category?.name && (
+                          <div className="truncate text-[11px] text-slate-400">
+                            {p.category.name}
+                          </div>
+                        )}
+                        <div className="mt-auto pt-1.5">
+                          <PriceDisplay
+                            value={p.salePrice}
+                            size="sm"
+                            tone="default"
+                            className="text-primary"
+                          />
+                          <div className="mt-1.5 flex items-center gap-1">
+                            {out ? (
+                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
+                                OUT OF STOCK
+                              </span>
+                            ) : low ? (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                Low · {formatNumber(availableCount)}
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                                {formatNumber(availableCount)} Available
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Cart panel — desktop only, sticky (~30-35%) */}
+          <div className="hidden lg:col-span-4 lg:block">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm lg:sticky lg:top-20">
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <ShoppingCartIcon className="h-4.5 w-4.5 text-slate-400" />
+                  Current Sale
+                </h2>
+                <div className="flex items-center gap-2">
+                  {itemCount > 0 && (
+                    <span className="rounded-full bg-primary-soft px-2.5 py-0.5 text-xs font-semibold text-primary">
+                      {itemCount} item{itemCount > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {cart.length > 0 && (
+                    <button
+                      onClick={requestClearCart}
+                      aria-label="Clear cart"
+                      title="Clear cart"
+                      className="rounded-lg p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2Icon className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {renderCartBody()}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile/tablet sticky cart bar */}
+      {cart.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white p-3 shadow-[0_-4px_16px_rgba(15,23,42,0.08)] lg:hidden">
+          <button
+            onClick={() => setShowMobileCart(true)}
+            className="flex w-full items-center justify-between rounded-xl bg-primary px-4 py-3 text-white shadow-sm transition hover:bg-primary-hover"
+          >
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <ShoppingCartIcon className="h-4.5 w-4.5" />
+              {itemCount} item{itemCount > 1 ? 's' : ''}
+            </span>
+            <span className="text-base font-bold">{formatCurrency(total)}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Mobile/tablet cart drawer */}
+      {showMobileCart && (
+        <Drawer title="Current Sale" onClose={() => setShowMobileCart(false)}>
+          {renderCartBody()}
+        </Drawer>
+      )}
+
+      {/* Clear cart confirmation */}
+      {showClearConfirm && (
+        <ConfirmDialog
+          title="Clear Cart?"
+          description="This will remove all items from the current sale."
+          confirmLabel="Clear Cart"
+          variant="danger"
+          onConfirm={confirmClearCart}
+          onCancel={() => setShowClearConfirm(false)}
+        />
+      )}
+
+      {/* Device selection modal (serialized products) */}
+      {pickerProduct && (
+        <Modal
+          title={`Select a device — ${pickerProduct.name}`}
+          onClose={() => {
+            setPickerProduct(null);
+            setPickerUnits([]);
+          }}
+          size="md"
+        >
+          <p className="-mt-3 mb-4 text-xs text-slate-500">
+            {[pickerProduct.category?.name, pickerProduct.storage]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+
+          {loadingUnits ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <SkeletonCard key={i} className="h-16" />
+              ))}
+            </div>
+          ) : pickerUnits.length === 0 ? (
+            <EmptyState
+              icon={SmartphoneIcon}
+              title="No devices available"
+              description="No units are currently in stock for this model."
+            />
+          ) : (
+            <div className="space-y-2">
+              {pickerUnits.map((u) => (
+                <button
+                  key={u.id}
+                  onClick={() => selectUnitFromPicker(u)}
+                  className="flex w-full items-center justify-between rounded-xl border border-slate-200 p-3 text-left transition hover:border-primary/50 hover:shadow-sm"
+                >
+                  <div className="min-w-0 flex-1 pr-3">
+                    <div className="font-mono text-xs text-slate-700">
+                      IMEI: {u.imei1}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-slate-500">
+                      {[
+                        u.color,
+                        CONDITION_LABELS[u.deviceCondition],
+                        u.conditionGrade ? `${u.conditionGrade}/10` : null,
+                        u.batteryHealth != null
+                          ? `${u.batteryHealth}% battery`
+                          : null,
+                        u.ptaStatus,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </div>
+                  </div>
+                  <PriceDisplay
+                    value={u.salePrice}
+                    size="md"
+                    className="shrink-0"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {/* Checkout modal */}
+      {showPayment && (
+        <Modal title="Checkout" onClose={() => setShowPayment(false)} size="xl">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            {/* Sale summary */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-slate-800">
+                Sale Summary
+              </h3>
+              <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                {cart.map((c) => (
+                  <div
+                    key={c.key}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate pr-2 text-slate-600">
+                      {c.product.name}
+                      {!c.unit && ` × ${c.quantity}`}
+                    </span>
+                    <span className="shrink-0 font-medium text-slate-900">
+                      {formatCurrency(c.price * c.quantity)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-900 px-4 py-3">
+                <span className="text-sm font-medium text-slate-300">
+                  Grand Total
+                </span>
+                <span className="text-xl font-bold text-white">
+                  {formatCurrency(total)}
+                </span>
+              </div>
+            </div>
+
+            {/* Payment method + amount */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-slate-800">
+                Payment Method
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {paymentMethods.map((m) => {
+                  const Icon = m.icon;
+                  return (
+                    <button
+                      key={m.key}
+                      onClick={() => setPaymentMethod(m.key)}
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border-2 py-3.5 transition ${
+                        paymentMethod === m.key
+                          ? 'border-primary bg-primary-soft shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <Icon
+                        className={`h-5 w-5 ${paymentMethod === m.key ? 'text-primary' : 'text-slate-400'}`}
+                      />
+                      <span
+                        className={`text-xs font-medium ${
+                          paymentMethod === m.key
+                            ? 'text-primary'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {m.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {paymentMethod === 'CASH' && (
+                  <div className="rounded-xl bg-primary-soft p-4 text-center">
+                    <p className="text-sm text-slate-600">Amount Received</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {formatCurrency(total)}
+                    </p>
+                  </div>
+                )}
+
+                {paymentMethod === 'CARD' && (
+                  <div className="rounded-xl bg-primary-soft p-4 text-center">
+                    <p className="text-sm text-slate-600">Amount to charge</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {formatCurrency(total)}
+                    </p>
+                  </div>
+                )}
+
+                {paymentMethod === 'ONLINE_WALLET' && (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">
+                        Wallet Provider
+                      </label>
+                      <select
+                        value={provider}
+                        onChange={(e) => setProvider(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                      >
+                        {WALLET_PROVIDERS.map((w) => (
+                          <option key={w} value={w}>
+                            {w}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="rounded-xl bg-purple-50 p-4 text-center">
+                      <p className="text-sm text-slate-600">
+                        Amount to receive
+                      </p>
+                      <p className="text-2xl font-bold text-slate-900">
+                        {formatCurrency(total)}
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {paymentMethod === 'BANK_TRANSFER' && (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600">
+                        Bank Name
+                      </label>
+                      <input
+                        value={bankName}
+                        onChange={(e) => setBankName(e.target.value)}
+                        placeholder="HBL"
+                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                      />
+                    </div>
+                    <div className="rounded-xl bg-amber-50 p-4 text-center">
+                      <p className="text-sm text-slate-600">
+                        Amount to receive
+                      </p>
+                      <p className="text-2xl font-bold text-slate-900">
+                        {formatCurrency(total)}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {paymentError && (
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+              {paymentError}
+            </div>
+          )}
+
+          <div className="mt-6 flex gap-2">
+            <button
+              onClick={() => setShowPayment(false)}
+              disabled={checkingOut}
+              className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmPayment}
+              disabled={checkingOut}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {checkingOut && <Loader2Icon className="h-4 w-4 animate-spin" />}
+              {checkingOut ? 'Processing...' : 'Complete Sale'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Receipt Modal — bespoke (not the shared Modal) because of the print-specific
+          CSS overrides (print:*) that only this screen needs. */}
+      {receipt && (
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm print:bg-white print:p-0 print:backdrop-blur-none ${
+            closingReceipt
+              ? 'animate-modal-overlay-out'
+              : 'animate-modal-overlay-in'
+          }`}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeReceiptModal();
+          }}
+        >
+          <div
+            ref={receiptModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-modal-title"
+            aria-describedby="receipt-modal-description"
+            className={`flex w-[92vw] max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:w-full sm:max-w-2xl print:max-h-none print:w-full print:max-w-full print:overflow-visible print:rounded-none print:border-none print:shadow-none ${
+              closingReceipt
+                ? 'animate-modal-panel-out'
+                : 'animate-modal-panel-in'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4 print:hidden">
+              <div>
+                <h2
+                  id="receipt-modal-title"
+                  className="text-lg font-bold text-slate-900"
+                >
+                  {editingReceipt ? 'Edit Sale' : 'Sale Completed'}
+                </h2>
+                <p
+                  id="receipt-modal-description"
+                  className="mt-0.5 text-xs text-slate-500"
+                >
+                  Bill #{receipt.dailyInvoiceNumber} ·{' '}
+                  {new Date(receipt.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <button
+                ref={receiptCloseButtonRef}
+                onClick={closeReceiptModal}
+                aria-label="Close receipt"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <XIcon className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-5 print:overflow-visible print:p-0">
+              {!editingReceipt && (
+                <div className="mb-4 flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 print:hidden">
+                  <CheckCircleIcon className="h-5 w-5 shrink-0" />
+                  Sale completed successfully — Invoice #
+                  {receipt.dailyInvoiceNumber}
+                </div>
+              )}
+              <div
+                id="receipt-print"
+                className="mx-auto font-mono text-slate-900"
+                style={{ width: '280px' }}
+              >
+                <div className="mb-3 text-center">
+                  <h2 className="text-base font-bold tracking-wide">
+                    MOBILE SHOP
+                  </h2>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                    Sales Receipt
+                  </p>
+                  <p className="mt-1 text-[10px] font-semibold text-slate-700">
+                    Bill #{receipt.dailyInvoiceNumber}
+                  </p>
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    {new Date(receipt.createdAt).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="border-t border-dashed border-slate-400 pt-2 text-[11px]">
+                  <div className="flex justify-between font-semibold text-slate-600">
+                    <span className="w-1/2">Item</span>
+                    <span className="w-1/4 text-center">Qty</span>
+                    <span className="w-1/4 text-right">Amount</span>
+                  </div>
+                </div>
+
+                <div className="border-t border-dashed border-slate-400 py-2 text-[11px]">
+                  {receipt.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between py-1"
+                    >
+                      <span className="w-1/2 truncate">{item.productName}</span>
+                      {editingReceipt ? (
+                        <span className="flex w-1/4 items-center justify-center gap-1 print:hidden">
+                          <button
+                            onClick={() => changeReceiptQty(item.id, -1)}
+                            className="flex h-4 w-4 items-center justify-center rounded bg-slate-200 text-[10px] text-slate-700"
+                          >
+                            −
+                          </button>
+                          {item.quantity}
+                          <button
+                            onClick={() => changeReceiptQty(item.id, 1)}
+                            className="flex h-4 w-4 items-center justify-center rounded bg-slate-200 text-[10px] text-slate-700"
+                          >
+                            +
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="w-1/4 text-center">
+                          {item.quantity}
+                        </span>
+                      )}
+                      <span className="w-1/4 text-right">
+                        {formatCurrency(item.lineTotal)}
+                      </span>
+                      {editingReceipt && (
+                        <button
+                          onClick={() => removeReceiptItem(item.id)}
+                          className="ml-1 text-red-600 print:hidden"
+                          aria-label="Remove item"
+                        >
+                          <XIcon className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t border-dashed border-slate-400 pt-2">
+                  <div className="flex justify-between text-sm font-bold">
+                    <span>TOTAL</span>
+                    <span>{formatCurrency(receipt.totalAmount)}</span>
+                  </div>
+                </div>
+
+                <div className="mt-2 border-t border-dashed border-slate-400 pt-2 text-[10px] text-slate-600">
+                  <div className="flex justify-between">
+                    <span>Payment</span>
+                    <span className="font-semibold">
+                      {receipt.paymentMethod === 'CASH' && 'Cash'}
+                      {receipt.paymentMethod === 'CARD' && 'Card'}
+                      {receipt.paymentMethod === 'ONLINE_WALLET' &&
+                        `${receipt.provider ?? 'Wallet'}`}
+                      {receipt.paymentMethod === 'BANK_TRANSFER' &&
+                        `Bank${receipt.bankName ? ` (${receipt.bankName})` : ''}`}
+                    </span>
+                  </div>
+                  {receipt.paymentMethod === 'CASH' && receipt.cashReceived && (
+                    <>
+                      <div className="flex justify-between">
+                        <span>Cash Received</span>
+                        <span>{formatCurrency(receipt.cashReceived)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Change</span>
+                        <span>
+                          {formatCurrency(
+                            parseFloat(receipt.cashReceived) -
+                              parseFloat(receipt.totalAmount),
+                          )}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <p className="mt-3 text-center text-[10px] text-slate-500">
+                  Thank you for shopping!
+                </p>
+              </div>
+
+              {editingReceipt && (
+                <div className="mt-5 border-t border-slate-200 pt-4 print:hidden">
+                  {editMessage && (
+                    <div
+                      role="alert"
+                      className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700"
+                    >
+                      {editMessage}
+                    </div>
+                  )}
+                  <p className="mb-2 text-xs font-semibold text-slate-600">
+                    Add product (accessories only)
+                  </p>
+                  <div className="grid max-h-36 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+                    {products
+                      .filter((p) => !p.isSerialized)
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => addReceiptItem(p)}
+                          disabled={p.stockQty === 0}
+                          className="rounded-lg border border-slate-200 p-2 text-left text-xs transition hover:border-primary/50 disabled:opacity-50"
+                        >
+                          <div className="font-medium text-slate-900">
+                            {p.name}
+                          </div>
+                          <div className="text-slate-500">
+                            {formatCurrency(p.salePrice)} ·{' '}
+                            {formatNumber(p.stockQty)}
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 border-t border-slate-100 px-6 py-4 print:hidden">
+              <button
+                onClick={handlePrintReceipt}
+                disabled={printingReceipt}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <PrinterIcon className="h-4 w-4" />
+                {printingReceipt ? 'Printing...' : 'Print Receipt'}
+              </button>
+              <button
+                onClick={() => {
+                  setEditingReceipt((v) => !v);
+                  setEditMessage(null);
+                }}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                  editingReceipt
+                    ? 'bg-primary text-white hover:bg-primary-hover'
+                    : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {editingReceipt ? 'Done' : 'Edit'}
+              </button>
+              <button
+                onClick={closeReceiptModal}
+                className="flex-1 rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                New Sale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

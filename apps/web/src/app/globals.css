@@ -10,6 +10,18 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Design system tokens — see design-system notes. Primary = electric blue
+     (buttons/links/active nav), Sidebar = dark navy surface (distinct role
+     from primary, not used for buttons). Status colors reuse Tailwind's
+     built-in emerald/amber/red/blue/purple/slate palettes directly. */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-soft: #eff6ff;
+  --color-sidebar: #0f172a;
+  --color-sidebar-hover: #1e293b;
+  --color-sidebar-foreground: #e2e8f0;
+  --color-sidebar-muted: #94a3b8;
 }
 
 body {
@@ -79,6 +91,21 @@ body {
   .animate-modal-overlay-out,
   .animate-modal-panel-in,
   .animate-modal-panel-out {
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Drawer (right-side slide-in) open transition */
+@keyframes drawer-panel-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.animate-drawer-panel-in {
+  animation: drawer-panel-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-drawer-panel-in {
     animation-duration: 0.01ms !important;
   }
 }

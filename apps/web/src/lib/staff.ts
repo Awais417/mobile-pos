@@ -1,5 +1,4 @@
 import { apiClient } from './api-client';
-import { tokenStorage } from './token-storage';
 import { Role } from './auth';
 
 export interface Staff {
@@ -15,18 +14,13 @@ export interface CreateStaffInput {
   fullName: string;
   email: string;
   password: string;
-  role: 'MANAGER' | 'CASHIER';
-}
-
-function authHeader() {
-  const token = tokenStorage.getAccessToken();
-  return { Authorization: `Bearer ${token}` };
+  role: 'SALESMAN';
 }
 
 export async function getStaff(): Promise<Staff[]> {
-  return apiClient.get<Staff[]>('/staff', { headers: authHeader() });
+  return apiClient.get<Staff[]>('/staff');
 }
 
 export async function createStaff(input: CreateStaffInput): Promise<Staff> {
-  return apiClient.post<Staff>('/staff', input, { headers: authHeader() });
+  return apiClient.post<Staff>('/staff', input);
 }
