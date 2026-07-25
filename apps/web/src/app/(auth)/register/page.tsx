@@ -68,7 +68,7 @@ export default function RegisterPage() {
                 onChange={(e) => setBusinessName(e.target.value)}
                 required
                 autoFocus
-                placeholder="Ali Cash & Carry"
+                placeholder="Enter your business name"
                 className={inputClass}
               />
             </FormField>
@@ -80,7 +80,7 @@ export default function RegisterPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
-                placeholder="Ali Khan"
+                placeholder="Enter your full name"
                 className={inputClass}
               />
             </FormField>
@@ -92,7 +92,7 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="you@example.com"
+                placeholder="name@gmail.com"
                 className={inputClass}
               />
             </FormField>

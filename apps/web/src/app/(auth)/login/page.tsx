@@ -2,7 +2,6 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { login, getCurrentUser } from '@/lib/auth';
 import { ApiRequestError } from '@/lib/api-client';
 import { AlertTriangleIcon, Loader2Icon, StoreIcon } from '@/components/icons';
@@ -101,13 +100,6 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-
-        <p className="mt-4 text-center text-sm text-slate-500">
-          Setting up a new shop?{' '}
-          <Link href="/register" className="font-medium text-primary hover:underline">
-            Create an account
-          </Link>
-        </p>
       </div>
     </div>
   );
