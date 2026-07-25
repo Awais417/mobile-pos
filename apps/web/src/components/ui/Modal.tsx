@@ -16,6 +16,8 @@ interface ModalProps {
   children: ReactNode;
   size?: ModalSize;
   footer?: ReactNode;
+  /** Optional badge/status rendered next to the title, before the close button — e.g. a StatusBadge on a "View" detail modal's header. */
+  headerExtra?: ReactNode;
   /** Set true while a closing animation is in flight (consumer controls the unmount timeout). */
   closing?: boolean;
   /** Escape hatch for one-off cases (e.g. print-specific overrides) — rare, most callers don't need this. */
@@ -32,6 +34,7 @@ export function Modal({
   children,
   size = 'md',
   footer,
+  headerExtra,
   closing,
   overlayClassName,
   panelClassName,
@@ -54,22 +57,25 @@ export function Modal({
         } ${panelClassName ?? ''}`}
       >
         {title && (
-          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
-            <h2 id="modal-title" className="text-lg font-semibold text-slate-900">
-              {title}
-            </h2>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-7 py-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <h2 id="modal-title" className="truncate text-lg font-semibold text-slate-900">
+                {title}
+              </h2>
+              {headerExtra}
+            </div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
             >
               <XIcon className="h-4.5 w-4.5" />
             </button>
           </div>
         )}
-        <div className="scrollbar-thin flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <div className="shrink-0 border-t border-slate-100 px-6 py-4">{footer}</div>}
+        <div className="scrollbar-thin flex-1 overflow-y-auto px-7 py-6">{children}</div>
+        {footer && <div className="shrink-0 border-t border-slate-100 px-7 py-5">{footer}</div>}
       </div>
     </div>
   );

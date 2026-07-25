@@ -32,6 +32,11 @@ import { getModels, createModel, Model } from '@/lib/models';
 import { isAppleCategory } from '@/lib/device-type';
 import { ApiRequestError } from '@/lib/api-client';
 import { formatCurrency, formatNumber } from '@/lib/format';
+import {
+  stripDecimalPoint,
+  blockDecimalKeyDown,
+  blockDecimalPaste,
+} from '@/lib/whole-number-input';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
@@ -44,6 +49,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/Skeletons';
 import { PriceDisplay } from '@/components/ui/PriceDisplay';
 import { StatusBadge, unitStatusTone, unitStatusLabel } from '@/components/ui/StatusBadge';
+import { DetailSection, DetailItem } from '@/components/ui/DetailList';
 import {
   inputClass,
   labelClass,
@@ -112,6 +118,7 @@ const PTA_OPTIONS: { value: PtaStatus; label: string }[] = [
 
 const CONDITION_OPTIONS: { value: DeviceCondition; label: string }[] = [
   { value: 'BRAND_NEW', label: 'Brand New' },
+  { value: 'BRAND_NEW_PIN_PACK', label: 'Brand New / Pin Pack' },
   { value: 'OPEN_BOX', label: 'Open Box' },
   { value: 'USED', label: 'Used' },
   { value: 'REFURBISHED', label: 'Refurbished' },
@@ -164,6 +171,7 @@ function buildUnitOverridePayload(u: UnitFormState, isApple: boolean): UnitOverr
     color: u.color.trim() || undefined,
     ram,
     storage,
+    deviceCondition: u.deviceCondition || undefined,
     ptaStatus: u.ptaStatus || undefined,
     batteryHealth: u.batteryHealth.trim() ? Number(u.batteryHealth) : undefined,
     conditionGrade: u.conditionGrade.trim() ? Number(u.conditionGrade) : undefined,
@@ -173,11 +181,11 @@ function buildUnitOverridePayload(u: UnitFormState, isApple: boolean): UnitOverr
 }
 
 // A unit is "Complete" once every field the backend actually requires is
-// filled in and valid — IMEI and Selling Price always; Cost Price only when
-// the admin-only field is visible at all. There's no Condition field to
-// require anymore.
+// filled in and valid — IMEI, Condition and Selling Price always; Cost
+// Price only when the admin-only field is visible at all.
 function isUnitComplete(u: UnitFormState, requireCostPrice: boolean): boolean {
   if (!/^\d{15}$/.test(u.imei.trim())) return false;
+  if (!u.deviceCondition) return false;
   const sale = Number(u.salePrice);
   if (!u.salePrice.trim() || Number.isNaN(sale) || sale <= 0) return false;
   if (requireCostPrice) {
@@ -646,6 +654,7 @@ interface UnitFormState {
   imei: string;
   color: string;
   storage: string;
+  deviceCondition: DeviceCondition | '';
   conditionGrade: string;
   ptaStatus: PtaStatus | '';
   batteryHealth: string;
@@ -653,10 +662,14 @@ interface UnitFormState {
   salePrice: string;
 }
 
+// BRAND_NEW matches the default used everywhere else a device condition is
+// collected (Edit Phone's form default, and the Prisma column default) —
+// keeping new units consistent with that existing behavior.
 const emptyUnitForm: UnitFormState = {
   imei: '',
   color: '',
   storage: '',
+  deviceCondition: 'BRAND_NEW',
   conditionGrade: '',
   ptaStatus: '',
   batteryHealth: '',
@@ -833,10 +846,16 @@ function ViewUnitsModal({
   });
 
   return (
-    <Modal title={product.name} onClose={onClose} size="lg">
-      <p className="-mt-3 mb-4 text-xs text-slate-500">
-        {[product.category?.name, product.model?.name, product.sku].filter(Boolean).join(' · ')} —{' '}
-        {product.units.length} units total
+    <Modal
+      title={product.name}
+      onClose={onClose}
+      size="xl"
+      headerExtra={
+        <StatusBadge tone="neutral">{product.units.length} units total</StatusBadge>
+      }
+    >
+      <p className="-mt-2 mb-4 text-sm text-slate-500">
+        {[product.category?.name, product.model?.name, product.sku].filter(Boolean).join(' · ')}
       </p>
 
       <SearchInput
@@ -892,47 +911,47 @@ function ViewUnitsModal({
       {filteredUnits.length === 0 ? (
         <EmptyState icon={InboxIcon} title="No units match" description="Try adjusting the search or filters." />
       ) : (
-        <div className="scrollbar-thin -mx-6 overflow-x-auto px-6">
+        <div className="scrollbar-thin -mx-7 overflow-x-auto px-7">
           <table className="w-full min-w-190 text-left text-sm">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="py-2 pr-3 font-medium">IMEI</th>
-                <th className="py-2 pr-3 font-medium">Color</th>
-                <th className="py-2 pr-3 font-medium">Condition</th>
-                <th className="py-2 pr-3 font-medium">PTA Status</th>
-                <th className="py-2 pr-3 font-medium">Battery</th>
-                <th className="py-2 pr-3 font-medium">Cost Price</th>
-                <th className="py-2 pr-3 font-medium">Sale Price</th>
-                <th className="py-2 pr-3 font-medium">Status</th>
-                <th className="py-2 font-medium"></th>
+                <th className="py-3 pr-4 font-medium">IMEI</th>
+                <th className="py-3 pr-4 font-medium">Color</th>
+                <th className="py-3 pr-4 font-medium">Condition</th>
+                <th className="py-3 pr-4 font-medium">PTA Status</th>
+                <th className="py-3 pr-4 font-medium">Battery</th>
+                <th className="py-3 pr-4 font-medium">Cost Price</th>
+                <th className="py-3 pr-4 font-medium">Sale Price</th>
+                <th className="py-3 pr-4 font-medium">Status</th>
+                <th className="py-3 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredUnits.map((u) => (
-                <tr key={u.id}>
-                  <td className="py-2.5 pr-3 font-mono text-xs text-slate-700">
+                <tr key={u.id} className="transition-colors hover:bg-slate-50/70">
+                  <td className="py-3 pr-4 font-mono text-xs text-slate-700">
                     {u.imei1 ?? u.serialNumber ?? '—'}
                   </td>
-                  <td className="py-2.5 pr-3 text-slate-600">{u.color ?? '—'}</td>
-                  <td className="py-2.5 pr-3 text-slate-600">{conditionLabel(u.deviceCondition)}</td>
-                  <td className="py-2.5 pr-3">
+                  <td className="py-3 pr-4 text-slate-600">{u.color ?? '—'}</td>
+                  <td className="py-3 pr-4 text-slate-600">{conditionLabel(u.deviceCondition)}</td>
+                  <td className="py-3 pr-4">
                     <StatusBadge tone={u.ptaStatus === 'PTA' ? 'success' : u.ptaStatus ? 'warning' : 'neutral'}>
                       {ptaLabel(u.ptaStatus)}
                     </StatusBadge>
                   </td>
-                  <td className="py-2.5 pr-3 text-slate-600">
+                  <td className="py-3 pr-4 text-slate-600">
                     {u.batteryHealth != null ? `${u.batteryHealth}%` : '—'}
                   </td>
-                  <td className="py-2.5 pr-3">
+                  <td className="py-3 pr-4">
                     {u.costPrice != null ? <PriceDisplay value={u.costPrice} size="sm" /> : '—'}
                   </td>
-                  <td className="py-2.5 pr-3">
+                  <td className="py-3 pr-4">
                     <PriceDisplay value={u.salePrice} size="sm" />
                   </td>
-                  <td className="py-2.5 pr-3">
+                  <td className="py-3 pr-4">
                     <StatusBadge tone={unitStatusTone(u.status)}>{unitStatusLabel(u.status)}</StatusBadge>
                   </td>
-                  <td className="py-2.5">
+                  <td className="py-3">
                     <ActionMenu
                       actions={[
                         {
@@ -967,11 +986,11 @@ function ViewUnitsModal({
 // One physical phone's full field set, generated once per unit whenever the
 // serialized Add Product form is open — deliberately built from the exact
 // same dropdown components/options as the rest of this form (ComboField,
-// CONDITION_GRADE_OPTIONS, PTA_OPTIONS) so Unit 1 and Unit N are never
-// inconsistent, and so any future change to those shared lists automatically
-// applies here too. Storage is a single value for Apple devices (from
-// STORAGE_OPTIONS) or a combined "RAM / Storage" value for everything else
-// (from RAM_STORAGE_OPTIONS) — there is no per-unit Condition field anymore.
+// CONDITION_OPTIONS, CONDITION_GRADE_OPTIONS, PTA_OPTIONS) so Unit 1 and Unit
+// N are never inconsistent, and so any future change to those shared lists
+// automatically applies here too. Storage is a single value for Apple
+// devices (from STORAGE_OPTIONS) or a combined "RAM / Storage" value for
+// everything else (from RAM_STORAGE_OPTIONS).
 function UnitCard({
   index,
   unit,
@@ -991,6 +1010,7 @@ function UnitCard({
   isApple: boolean;
   errors: {
     imei?: string;
+    condition?: string;
     battery?: string;
     cost?: string;
     sale?: string;
@@ -1053,6 +1073,24 @@ function UnitCard({
               customPlaceholder="Enter Custom Color"
               placeholder="Search color..."
             />
+          </div>
+          <div>
+            <label className={labelClass}>
+              Condition <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={unit.deviceCondition}
+              onChange={(e) => onChange('deviceCondition', e.target.value as DeviceCondition | '')}
+              className={inputClass}
+            >
+              <option value="">Select condition</option>
+              {CONDITION_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            {errors.condition && <p className={errorClass}>{errors.condition}</p>}
           </div>
           <div>
             <label className={labelClass}>{isApple ? 'Storage' : 'RAM / Storage'}</label>
@@ -1120,9 +1158,11 @@ function UnitCard({
               </label>
               <input
                 value={unit.costPrice}
-                onChange={(e) => onChange('costPrice', e.target.value)}
+                onChange={(e) => onChange('costPrice', stripDecimalPoint(e.target.value))}
+                onKeyDown={blockDecimalKeyDown}
+                onPaste={blockDecimalPaste}
                 type="number"
-                step="0.01"
+                step="1"
                 className={inputClass}
               />
               {errors.cost && <p className={errorClass}>{errors.cost}</p>}
@@ -1134,9 +1174,11 @@ function UnitCard({
             </label>
             <input
               value={unit.salePrice}
-              onChange={(e) => onChange('salePrice', e.target.value)}
+              onChange={(e) => onChange('salePrice', stripDecimalPoint(e.target.value))}
+              onKeyDown={blockDecimalKeyDown}
+              onPaste={blockDecimalPaste}
               type="number"
-              step="0.01"
+              step="1"
               className={inputClass}
             />
             {errors.sale && <p className={errorClass}>{errors.sale}</p>}
@@ -1381,8 +1423,8 @@ function ProductsContent() {
     setExpandedUnits({});
   }
 
-  // Copies Unit 1's Color/Storage/Grade/PTA/Cost/Sale Price onto every other
-  // unit — IMEI and Battery Health are never touched, since every physical
+  // Copies Unit 1's Color/Condition/Storage/Grade/PTA/Cost/Sale Price onto
+  // every other unit — IMEI and Battery Health are never touched, since every physical
   // device has its own identity and its own battery wear. The user can still
   // edit any unit individually afterwards.
   function copyCommonValuesToAllUnits() {
@@ -1396,6 +1438,7 @@ function ProductsContent() {
               ...u,
               color: first.color,
               storage: first.storage,
+              deviceCondition: first.deviceCondition,
               conditionGrade: first.conditionGrade,
               ptaStatus: first.ptaStatus,
               costPrice: first.costPrice,
@@ -1537,6 +1580,10 @@ function ProductsContent() {
         seen.add(val);
       }
 
+      if (!u.deviceCondition) {
+        errs[`unit${i}Condition`] = 'Condition is required.';
+      }
+
       if (u.batteryHealth.trim()) {
         const b = Number(u.batteryHealth);
         if (Number.isNaN(b) || b < 0 || b > 100) {
@@ -1592,8 +1639,7 @@ function ProductsContent() {
         // as unitOverrides (aligned to additionalImeis). SKU is required by
         // the backend (unique per business) but isn't a field the admin fills
         // in anymore — it's generated silently from the Device Name, the same
-        // "silent find-or-create" spirit already used for Model. There's no
-        // Condition field anymore — the backend column defaults on its own.
+        // "silent find-or-create" spirit already used for Model.
         await createPhone({
           categoryId: productForm.categoryId,
           modelId,
@@ -1608,6 +1654,7 @@ function ProductsContent() {
           color: first.color.trim() || undefined,
           ram: firstRamStorage.ram,
           storage: firstRamStorage.storage,
+          deviceCondition: first.deviceCondition || undefined,
           ptaStatus: first.ptaStatus || undefined,
           conditionGrade: first.conditionGrade ? Number(first.conditionGrade) : undefined,
           batteryHealth: first.batteryHealth ? Number(first.batteryHealth) : undefined,
@@ -1994,57 +2041,57 @@ function ProductsContent() {
               <table className="w-full min-w-250 text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Product</th>
-                    <th className="px-4 py-3 font-medium">Category</th>
-                    <th className="px-4 py-3 font-medium">Model</th>
-                    <th className="px-4 py-3 font-medium">SKU</th>
-                    <th className="px-4 py-3 font-medium">Stock</th>
-                    <th className="px-4 py-3 font-medium">Condition</th>
-                    <th className="px-4 py-3 font-medium">Sale Price</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium"></th>
+                    <th className="px-5 py-3.5 font-medium">Product</th>
+                    <th className="px-5 py-3.5 font-medium">Category</th>
+                    <th className="px-5 py-3.5 font-medium">Model</th>
+                    <th className="px-5 py-3.5 font-medium">SKU</th>
+                    <th className="px-5 py-3.5 font-medium">Stock</th>
+                    <th className="px-5 py-3.5 font-medium">Condition</th>
+                    <th className="px-5 py-3.5 font-medium">Sale Price</th>
+                    <th className="px-5 py-3.5 font-medium">Status</th>
+                    <th className="px-5 py-3.5 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => (
                     <tr key={item.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
-                      <td className="px-4 py-3">
-                        <div className="flex items-start gap-2.5">
-                          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                      <td className="px-5 py-4">
+                        <div className="flex items-start gap-3">
+                          <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
                             {item.isSerialized ? (
-                              <SmartphoneIcon className="h-4 w-4" />
+                              <SmartphoneIcon className="h-5 w-5" />
                             ) : (
-                              <PackageIcon className="h-4 w-4" />
+                              <PackageIcon className="h-5 w-5" />
                             )}
                           </span>
                           <div className="min-w-0">
-                            <div className="line-clamp-2 font-medium text-slate-900">{item.name}</div>
+                            <div className="line-clamp-2 text-base font-semibold text-slate-900">{item.name}</div>
                             {unitSummaryText(item) && (
-                              <div className="mt-0.5 text-xs text-slate-500">{unitSummaryText(item)}</div>
+                              <div className="mt-1 text-xs text-slate-500">{unitSummaryText(item)}</div>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-500">{item.category?.name ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-500">{item.model?.name ?? '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-500">{item.sku}</td>
-                      <td className="px-4 py-3 text-slate-700">{formatNumber(item.stock)}</td>
-                      <td className="px-4 py-3 text-slate-500">
+                      <td className="px-5 py-4 text-slate-500">{item.category?.name ?? '—'}</td>
+                      <td className="px-5 py-4 text-slate-500">{item.model?.name ?? '—'}</td>
+                      <td className="px-5 py-4 font-mono text-xs text-slate-500">{item.sku}</td>
+                      <td className="px-5 py-4 text-sm font-semibold text-slate-900">{formatNumber(item.stock)}</td>
+                      <td className="px-5 py-4 text-slate-500">
                         {item.mixedConditions ? (
                           <StatusBadge tone="neutral">Mixed</StatusBadge>
                         ) : (
                           conditionLabel(item.condition)
                         )}
                       </td>
-                      <td className="px-4 py-3">
-                        <PriceDisplay value={item.salePrice} />
+                      <td className="px-5 py-4">
+                        <PriceDisplay value={item.salePrice} size="lg" />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4">
                         <StatusBadge tone={item.status === 'LOW_STOCK' ? 'danger' : 'success'}>
                           {item.status === 'LOW_STOCK' ? 'Low Stock' : 'In Stock'}
                         </StatusBadge>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4">
                         <ActionMenu
                           actions={[
                             {
@@ -2202,7 +2249,9 @@ function ProductsContent() {
                       </p>
                       <input
                         value={productForm.quantity}
-                        onChange={(e) => updatePhoneQuantity(e.target.value)}
+                        onChange={(e) => updatePhoneQuantity(stripDecimalPoint(e.target.value))}
+                        onKeyDown={blockDecimalKeyDown}
+                        onPaste={blockDecimalPaste}
                         type="number"
                         min={1}
                         step={1}
@@ -2280,8 +2329,8 @@ function ProductsContent() {
                                 </div>
                               </div>
                               <p className="-mt-1 mb-3 text-xs text-slate-500">
-                                Copies Unit 1&apos;s Color/Storage/Grade/PTA Status/Cost/Sale Price to
-                                every other unit. IMEI and Battery Health are never copied — edit any
+                                Copies Unit 1&apos;s Color/Condition/Storage/Grade/PTA Status/Cost/Sale
+                                Price to every other unit. IMEI and Battery Health are never copied — edit any
                                 unit afterwards to make it different again.
                               </p>
                             </>
@@ -2302,6 +2351,7 @@ function ProductsContent() {
                                 isApple={isApple}
                                 errors={{
                                   imei: errors[`unit${i}Imei`],
+                                  condition: errors[`unit${i}Condition`],
                                   battery: errors[`unit${i}Battery`],
                                   cost: errors[`unit${i}Cost`],
                                   sale: errors[`unit${i}Sale`],
@@ -2336,7 +2386,11 @@ function ProductsContent() {
                         />
                         <input
                           value={productForm.warrantyDays}
-                          onChange={(e) => updateProductField('warrantyDays', e.target.value)}
+                          onChange={(e) =>
+                            updateProductField('warrantyDays', stripDecimalPoint(e.target.value))
+                          }
+                          onKeyDown={blockDecimalKeyDown}
+                          onPaste={blockDecimalPaste}
                           type="number"
                           min={0}
                           placeholder="Warranty (days)"
@@ -2404,7 +2458,11 @@ function ProductsContent() {
                         </label>
                         <input
                           value={productForm.quantity}
-                          onChange={(e) => updateProductField('quantity', e.target.value)}
+                          onChange={(e) =>
+                            updateProductField('quantity', stripDecimalPoint(e.target.value))
+                          }
+                          onKeyDown={blockDecimalKeyDown}
+                          onPaste={blockDecimalPaste}
                           type="number"
                           min={1}
                           step={1}
@@ -2446,9 +2504,13 @@ function ProductsContent() {
                           </label>
                           <input
                             value={productForm.costPrice}
-                            onChange={(e) => updateProductField('costPrice', e.target.value)}
+                            onChange={(e) =>
+                              updateProductField('costPrice', stripDecimalPoint(e.target.value))
+                            }
+                            onKeyDown={blockDecimalKeyDown}
+                            onPaste={blockDecimalPaste}
                             type="number"
-                            step="0.01"
+                            step="1"
                             className={inputClass}
                           />
                           {errors.costPrice && <p className={errorClass}>{errors.costPrice}</p>}
@@ -2460,9 +2522,13 @@ function ProductsContent() {
                         </label>
                         <input
                           value={productForm.salePrice}
-                          onChange={(e) => updateProductField('salePrice', e.target.value)}
+                          onChange={(e) =>
+                            updateProductField('salePrice', stripDecimalPoint(e.target.value))
+                          }
+                          onKeyDown={blockDecimalKeyDown}
+                          onPaste={blockDecimalPaste}
                           type="number"
-                          step="0.01"
+                          step="1"
                           className={inputClass}
                         />
                         {errors.salePrice && <p className={errorClass}>{errors.salePrice}</p>}
@@ -2491,7 +2557,11 @@ function ProductsContent() {
                         />
                         <input
                           value={productForm.reorderLevel}
-                          onChange={(e) => updateProductField('reorderLevel', e.target.value)}
+                          onChange={(e) =>
+                            updateProductField('reorderLevel', stripDecimalPoint(e.target.value))
+                          }
+                          onKeyDown={blockDecimalKeyDown}
+                          onPaste={blockDecimalPaste}
                           type="number"
                           min={0}
                           placeholder="Stock Alert At"
@@ -2694,7 +2764,11 @@ function ProductsContent() {
                   <div className="relative max-w-50">
                     <input
                       value={phoneForm.batteryHealth}
-                      onChange={(e) => updatePhoneField('batteryHealth', e.target.value)}
+                      onChange={(e) =>
+                        updatePhoneField('batteryHealth', stripDecimalPoint(e.target.value))
+                      }
+                      onKeyDown={blockDecimalKeyDown}
+                      onPaste={blockDecimalPaste}
                       type="number"
                       min={0}
                       max={100}
@@ -2731,9 +2805,13 @@ function ProductsContent() {
                   </label>
                   <input
                     value={phoneForm.salePrice}
-                    onChange={(e) => updatePhoneField('salePrice', e.target.value)}
+                    onChange={(e) =>
+                      updatePhoneField('salePrice', stripDecimalPoint(e.target.value))
+                    }
+                    onKeyDown={blockDecimalKeyDown}
+                    onPaste={blockDecimalPaste}
                     type="number"
-                    step="0.01"
+                    step="1"
                     className={inputClass}
                   />
                   {errors.salePrice && <p className={errorClass}>{errors.salePrice}</p>}
@@ -2770,7 +2848,11 @@ function ProductsContent() {
                   />
                   <input
                     value={phoneForm.warrantyDays}
-                    onChange={(e) => updatePhoneField('warrantyDays', e.target.value)}
+                    onChange={(e) =>
+                      updatePhoneField('warrantyDays', stripDecimalPoint(e.target.value))
+                    }
+                    onKeyDown={blockDecimalKeyDown}
+                    onPaste={blockDecimalPaste}
                     type="number"
                     min={0}
                     placeholder="Warranty (days)"
@@ -2898,9 +2980,13 @@ function ProductsContent() {
                   </label>
                   <input
                     value={accessoryForm.salePrice}
-                    onChange={(e) => updateAccessoryField('salePrice', e.target.value)}
+                    onChange={(e) =>
+                      updateAccessoryField('salePrice', stripDecimalPoint(e.target.value))
+                    }
+                    onKeyDown={blockDecimalKeyDown}
+                    onPaste={blockDecimalPaste}
                     type="number"
-                    step="0.01"
+                    step="1"
                     className={inputClass}
                   />
                   {errors.salePrice && <p className={errorClass}>{errors.salePrice}</p>}
@@ -2911,7 +2997,11 @@ function ProductsContent() {
                   <label className={labelClass}>Stock Qty</label>
                   <input
                     value={accessoryForm.stockQty}
-                    onChange={(e) => updateAccessoryField('stockQty', e.target.value)}
+                    onChange={(e) =>
+                      updateAccessoryField('stockQty', stripDecimalPoint(e.target.value))
+                    }
+                    onKeyDown={blockDecimalKeyDown}
+                    onPaste={blockDecimalPaste}
                     type="number"
                     className={inputClass}
                   />
@@ -2920,7 +3010,11 @@ function ProductsContent() {
                   <label className={labelClass}>Stock Alert At</label>
                   <input
                     value={accessoryForm.reorderLevel}
-                    onChange={(e) => updateAccessoryField('reorderLevel', e.target.value)}
+                    onChange={(e) =>
+                      updateAccessoryField('reorderLevel', stripDecimalPoint(e.target.value))
+                    }
+                    onKeyDown={blockDecimalKeyDown}
+                    onPaste={blockDecimalPaste}
                     type="number"
                     className={inputClass}
                   />
@@ -2934,72 +3028,96 @@ function ProductsContent() {
 
       {/* View phone modal */}
       {modal.type === 'view-phone' && (
-        <Modal title="Phone Details" onClose={closeModal} size="md">
-          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {[
-              ['Category', modal.unit.product?.category?.name ?? '—'],
-              ['Model', modal.unit.product?.model?.name ?? '—'],
-              ['SKU', modal.unit.product?.sku ?? '—'],
-              ['IMEI', modal.unit.imei1 ?? '—'],
-              ['IMEI 2', modal.unit.imei2 ?? '—'],
-              ['Serial Number', modal.unit.serialNumber ?? '—'],
-              ['RAM', modal.unit.ram ?? '—'],
-              ['Storage', modal.unit.product?.storage ?? '—'],
-              ['Color', modal.unit.color ?? '—'],
-              ['Device Status', ptaLabel(modal.unit.ptaStatus)],
-              [
-                'Battery Health',
-                modal.unit.batteryHealth != null ? `${modal.unit.batteryHealth}%` : '—',
-              ],
-              ['Condition', conditionLabel(modal.unit.deviceCondition)],
-              ...(isAdmin
-                ? [['Cost Price', modal.unit.costPrice != null ? formatCurrency(modal.unit.costPrice) : '—']]
-                : []),
-              ['Selling Price', formatCurrency(modal.unit.salePrice)],
-              ['Stock Status', modal.unit.status.replace('_', ' ')],
-              ['Created Date', new Date(modal.unit.createdAt).toLocaleDateString()],
-              ['Supplier', modal.unit.supplier ?? '—'],
-              ['Notes', modal.unit.notes ?? '—'],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-xs font-medium text-slate-400">{label}</dt>
-                <dd className="text-sm text-slate-900">{value}</dd>
-              </div>
-            ))}
-          </dl>
+        <Modal
+          title="Phone Details"
+          onClose={closeModal}
+          size="lg"
+          headerExtra={
+            <StatusBadge tone={unitStatusTone(modal.unit.status)} dot>
+              {unitStatusLabel(modal.unit.status)}
+            </StatusBadge>
+          }
+        >
+          <DetailSection title="Device Identity">
+            <DetailItem label="Category" value={modal.unit.product?.category?.name ?? '—'} />
+            <DetailItem label="Model" value={modal.unit.product?.model?.name ?? '—'} />
+            <DetailItem label="SKU" value={modal.unit.product?.sku ?? '—'} />
+            <DetailItem label="IMEI" value={modal.unit.imei1 ?? '—'} />
+            <DetailItem label="IMEI 2" value={modal.unit.imei2 ?? '—'} />
+            <DetailItem label="Serial Number" value={modal.unit.serialNumber ?? '—'} />
+          </DetailSection>
+          <DetailSection title="Specifications & Condition">
+            <DetailItem label="RAM" value={modal.unit.ram ?? '—'} />
+            <DetailItem label="Storage" value={modal.unit.product?.storage ?? '—'} />
+            <DetailItem label="Color" value={modal.unit.color ?? '—'} />
+            <DetailItem label="Condition" value={conditionLabel(modal.unit.deviceCondition)} />
+            <DetailItem label="Device Status" value={ptaLabel(modal.unit.ptaStatus)} />
+            <DetailItem
+              label="Battery Health"
+              value={modal.unit.batteryHealth != null ? `${modal.unit.batteryHealth}%` : '—'}
+            />
+          </DetailSection>
+          <DetailSection title="Pricing & Stock">
+            {isAdmin && (
+              <DetailItem
+                label="Cost Price"
+                value={modal.unit.costPrice != null ? formatCurrency(modal.unit.costPrice) : '—'}
+              />
+            )}
+            <DetailItem label="Selling Price" value={formatCurrency(modal.unit.salePrice)} />
+            <DetailItem label="Stock Status" value={modal.unit.status.replace('_', ' ')} />
+          </DetailSection>
+          <DetailSection title="Other">
+            <DetailItem
+              label="Created Date"
+              value={new Date(modal.unit.createdAt).toLocaleDateString()}
+            />
+            <DetailItem label="Supplier" value={modal.unit.supplier ?? '—'} />
+            <DetailItem label="Notes" value={modal.unit.notes ?? '—'} className="sm:col-span-2" />
+          </DetailSection>
         </Modal>
       )}
 
       {/* View accessory modal */}
       {modal.type === 'view-accessory' && (
-        <Modal title="Product Details" onClose={closeModal} size="md">
-          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {[
-              ['Model', modal.product.name],
-              ['Category', modal.product.category?.name ?? '—'],
-              ['SKU', modal.product.sku],
-              ['Barcode', modal.product.barcode ?? '—'],
-              ['Color', modal.product.color ?? '—'],
-              ['Compatibility', modal.product.compatibility ?? '—'],
-              ...(isAdmin
-                ? [
-                    [
-                      'Cost Price',
-                      modal.product.costPrice != null ? formatCurrency(modal.product.costPrice) : '—',
-                    ],
-                  ]
-                : []),
-              ['Selling Price', formatCurrency(modal.product.salePrice)],
-              ['Stock Qty', formatNumber(modal.product.stockQty)],
-              ['Stock Alert At', formatNumber(modal.product.reorderLevel)],
-              ['Created Date', new Date(modal.product.createdAt).toLocaleDateString()],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-xs font-medium text-slate-400">{label}</dt>
-                <dd className="text-sm text-slate-900">{value}</dd>
-              </div>
-            ))}
-          </dl>
+        <Modal
+          title="Product Details"
+          onClose={closeModal}
+          size="lg"
+          headerExtra={
+            <StatusBadge
+              tone={modal.product.stockQty <= modal.product.reorderLevel ? 'danger' : 'success'}
+              dot
+            >
+              {modal.product.stockQty <= modal.product.reorderLevel ? 'Low Stock' : 'In Stock'}
+            </StatusBadge>
+          }
+        >
+          <DetailSection title="Product Identity">
+            <DetailItem label="Model" value={modal.product.name} />
+            <DetailItem label="Category" value={modal.product.category?.name ?? '—'} />
+            <DetailItem label="SKU" value={modal.product.sku} />
+            <DetailItem label="Barcode" value={modal.product.barcode ?? '—'} />
+            <DetailItem label="Color" value={modal.product.color ?? '—'} />
+            <DetailItem label="Compatibility" value={modal.product.compatibility ?? '—'} />
+          </DetailSection>
+          <DetailSection title="Pricing & Stock">
+            {isAdmin && (
+              <DetailItem
+                label="Cost Price"
+                value={modal.product.costPrice != null ? formatCurrency(modal.product.costPrice) : '—'}
+              />
+            )}
+            <DetailItem label="Selling Price" value={formatCurrency(modal.product.salePrice)} />
+            <DetailItem label="Stock Qty" value={formatNumber(modal.product.stockQty)} />
+            <DetailItem label="Stock Alert At" value={formatNumber(modal.product.reorderLevel)} />
+          </DetailSection>
+          <DetailSection title="Other">
+            <DetailItem
+              label="Created Date"
+              value={new Date(modal.product.createdAt).toLocaleDateString()}
+            />
+          </DetailSection>
         </Modal>
       )}
 

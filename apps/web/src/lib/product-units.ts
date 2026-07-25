@@ -4,6 +4,8 @@ export type PtaStatus = 'PTA' | 'NON_PTA' | 'JV';
 export type UnitStatus = 'IN_STOCK' | 'SOLD' | 'RESERVED';
 export type DeviceCondition =
   | 'BRAND_NEW'
+  // Sealed, box-packed device that has never been opened/used.
+  | 'BRAND_NEW_PIN_PACK'
   | 'OPEN_BOX'
   | 'USED'
   | 'REFURBISHED'

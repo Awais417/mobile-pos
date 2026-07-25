@@ -20,6 +20,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton, SkeletonCard } from '@/components/ui/Skeletons';
 import { Modal } from '@/components/ui/Modal';
 import { StatusBadge, unitStatusTone, unitStatusLabel } from '@/components/ui/StatusBadge';
+import { DetailSection, DetailItem } from '@/components/ui/DetailList';
 import { PriceDisplay } from '@/components/ui/PriceDisplay';
 import {
   AlertTriangleIcon,
@@ -40,6 +41,7 @@ const PTA_OPTIONS: { value: PtaStatus; label: string }[] = [
 
 const CONDITION_OPTIONS: { value: DeviceCondition; label: string }[] = [
   { value: 'BRAND_NEW', label: 'Brand New' },
+  { value: 'BRAND_NEW_PIN_PACK', label: 'Brand New / Pin Pack' },
   { value: 'OPEN_BOX', label: 'Open Box' },
   { value: 'USED', label: 'Used' },
   { value: 'REFURBISHED', label: 'Refurbished' },
@@ -291,43 +293,43 @@ export default function InventoryPage() {
               <table className="w-full min-w-275 text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Category</th>
-                    <th className="px-4 py-3 font-medium">Model</th>
-                    <th className="px-4 py-3 font-medium">IMEI / Serial</th>
-                    <th className="px-4 py-3 font-medium">Storage</th>
-                    <th className="px-4 py-3 font-medium">Color</th>
-                    <th className="px-4 py-3 font-medium">Condition</th>
-                    <th className="px-4 py-3 font-medium">PTA Status</th>
-                    {isAdmin && <th className="px-4 py-3 font-medium">Cost Price</th>}
-                    <th className="px-4 py-3 font-medium">Selling Price</th>
-                    <th className="px-4 py-3 font-medium">Availability</th>
-                    <th className="px-4 py-3 font-medium"></th>
+                    <th className="px-5 py-3.5 font-medium">Category</th>
+                    <th className="px-5 py-3.5 font-medium">Model</th>
+                    <th className="px-5 py-3.5 font-medium">IMEI / Serial</th>
+                    <th className="px-5 py-3.5 font-medium">Storage</th>
+                    <th className="px-5 py-3.5 font-medium">Color</th>
+                    <th className="px-5 py-3.5 font-medium">Condition</th>
+                    <th className="px-5 py-3.5 font-medium">PTA Status</th>
+                    {isAdmin && <th className="px-5 py-3.5 font-medium">Cost Price</th>}
+                    <th className="px-5 py-3.5 font-medium">Selling Price</th>
+                    <th className="px-5 py-3.5 font-medium">Availability</th>
+                    <th className="px-5 py-3.5 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredUnits.map((u) => (
                     <tr key={u.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
-                      <td className="px-4 py-3 text-slate-500">{u.product?.category?.name ?? '—'}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{u.product?.model?.name ?? u.product?.name ?? '—'}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                      <td className="px-5 py-4 text-slate-500">{u.product?.category?.name ?? '—'}</td>
+                      <td className="px-5 py-4 text-base font-semibold text-slate-900">{u.product?.model?.name ?? u.product?.name ?? '—'}</td>
+                      <td className="px-5 py-4 font-mono text-xs text-slate-700">
                         {u.imei1 ?? u.serialNumber ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-slate-500">{u.product?.storage ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-500">{u.color ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-500">{conditionLabel(u.deviceCondition)}</td>
-                      <td className="px-4 py-3 text-slate-500">{ptaLabel(u.ptaStatus)}</td>
+                      <td className="px-5 py-4 text-slate-500">{u.product?.storage ?? '—'}</td>
+                      <td className="px-5 py-4 text-slate-500">{u.color ?? '—'}</td>
+                      <td className="px-5 py-4 text-slate-500">{conditionLabel(u.deviceCondition)}</td>
+                      <td className="px-5 py-4 text-slate-500">{ptaLabel(u.ptaStatus)}</td>
                       {isAdmin && (
-                        <td className="px-4 py-3 text-slate-500">
+                        <td className="px-5 py-4 text-slate-500">
                           {u.costPrice != null ? formatCurrency(u.costPrice) : '—'}
                         </td>
                       )}
-                      <td className="px-4 py-3">
-                        <PriceDisplay value={u.salePrice} />
+                      <td className="px-5 py-4">
+                        <PriceDisplay value={u.salePrice} size="lg" />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4">
                         <StatusBadge tone={unitStatusTone(u.status)}>{unitStatusLabel(u.status)}</StatusBadge>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setViewUnit(u)}
@@ -348,36 +350,53 @@ export default function InventoryPage() {
       </div>
 
       {viewUnit && (
-        <Modal title="Device Details" onClose={() => setViewUnit(null)} size="md">
-          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {[
-              ['Category', viewUnit.product?.category?.name ?? '—'],
-              ['Model', viewUnit.product?.model?.name ?? viewUnit.product?.name ?? '—'],
-              ['SKU', viewUnit.product?.sku ?? '—'],
-              ['IMEI', viewUnit.imei1 ?? '—'],
-              ['IMEI 2', viewUnit.imei2 ?? '—'],
-              ['Serial Number', viewUnit.serialNumber ?? '—'],
-              ['RAM', viewUnit.ram ?? '—'],
-              ['Storage', viewUnit.product?.storage ?? '—'],
-              ['Color', viewUnit.color ?? '—'],
-              ['PTA Status', ptaLabel(viewUnit.ptaStatus)],
-              ['Battery Health', viewUnit.batteryHealth != null ? `${viewUnit.batteryHealth}%` : '—'],
-              ['Condition', conditionLabel(viewUnit.deviceCondition)],
-              ...(isAdmin
-                ? [['Cost Price', viewUnit.costPrice != null ? formatCurrency(viewUnit.costPrice) : '—']]
-                : []),
-              ['Selling Price', formatCurrency(viewUnit.salePrice)],
-              ['Stock Status', unitStatusLabel(viewUnit.status)],
-              ['Date Added', new Date(viewUnit.createdAt).toLocaleDateString()],
-              ['Supplier', viewUnit.supplier ?? '—'],
-              ['Notes', viewUnit.notes ?? '—'],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-xs font-medium text-slate-400">{label}</dt>
-                <dd className="text-sm text-slate-900">{value}</dd>
-              </div>
-            ))}
-          </dl>
+        <Modal
+          title="Device Details"
+          onClose={() => setViewUnit(null)}
+          size="lg"
+          headerExtra={
+            <StatusBadge tone={unitStatusTone(viewUnit.status)} dot>
+              {unitStatusLabel(viewUnit.status)}
+            </StatusBadge>
+          }
+        >
+          <DetailSection title="Device Identity">
+            <DetailItem label="Category" value={viewUnit.product?.category?.name ?? '—'} />
+            <DetailItem
+              label="Model"
+              value={viewUnit.product?.model?.name ?? viewUnit.product?.name ?? '—'}
+            />
+            <DetailItem label="SKU" value={viewUnit.product?.sku ?? '—'} />
+            <DetailItem label="IMEI" value={viewUnit.imei1 ?? '—'} />
+            <DetailItem label="IMEI 2" value={viewUnit.imei2 ?? '—'} />
+            <DetailItem label="Serial Number" value={viewUnit.serialNumber ?? '—'} />
+          </DetailSection>
+          <DetailSection title="Specifications & Condition">
+            <DetailItem label="RAM" value={viewUnit.ram ?? '—'} />
+            <DetailItem label="Storage" value={viewUnit.product?.storage ?? '—'} />
+            <DetailItem label="Color" value={viewUnit.color ?? '—'} />
+            <DetailItem label="Condition" value={conditionLabel(viewUnit.deviceCondition)} />
+            <DetailItem label="PTA Status" value={ptaLabel(viewUnit.ptaStatus)} />
+            <DetailItem
+              label="Battery Health"
+              value={viewUnit.batteryHealth != null ? `${viewUnit.batteryHealth}%` : '—'}
+            />
+          </DetailSection>
+          <DetailSection title="Pricing & Stock">
+            {isAdmin && (
+              <DetailItem
+                label="Cost Price"
+                value={viewUnit.costPrice != null ? formatCurrency(viewUnit.costPrice) : '—'}
+              />
+            )}
+            <DetailItem label="Selling Price" value={formatCurrency(viewUnit.salePrice)} />
+            <DetailItem label="Stock Status" value={unitStatusLabel(viewUnit.status)} />
+          </DetailSection>
+          <DetailSection title="Other">
+            <DetailItem label="Date Added" value={new Date(viewUnit.createdAt).toLocaleDateString()} />
+            <DetailItem label="Supplier" value={viewUnit.supplier ?? '—'} />
+            <DetailItem label="Notes" value={viewUnit.notes ?? '—'} className="sm:col-span-2" />
+          </DetailSection>
         </Modal>
       )}
     </div>

@@ -346,11 +346,11 @@ export default function CategoriesPage() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Name</th>
-                    <th className="px-4 py-3 font-medium">Type</th>
-                    <th className="px-4 py-3 font-medium">Products</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium"></th>
+                    <th className="px-5 py-3.5 font-medium">Name</th>
+                    <th className="px-5 py-3.5 font-medium">Type</th>
+                    <th className="px-5 py-3.5 font-medium">Products</th>
+                    <th className="px-5 py-3.5 font-medium">Status</th>
+                    <th className="px-5 py-3.5 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -359,36 +359,38 @@ export default function CategoriesPage() {
                       key={c.id}
                       className={`border-t border-slate-100 transition-colors hover:bg-slate-50/70 ${!c.isActive ? 'opacity-60' : ''}`}
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5 font-medium text-slate-900">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                            <TagIcon className="h-3.5 w-3.5" />
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                            <TagIcon className="h-5 w-5" />
                           </span>
                           <div>
-                            {c.name}
+                            <div className="text-base font-semibold text-slate-900">{c.name}</div>
                             {c.description && (
-                              <div className="text-xs font-normal text-slate-400">{c.description}</div>
+                              <div className="mt-0.5 text-xs text-slate-400">{c.description}</div>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4">
                         <StatusBadge tone={c.isSerialized ? 'purple' : 'neutral'}>
                           {c.isSerialized ? 'Serialized (IMEI)' : 'Accessory'}
                         </StatusBadge>
                       </td>
-                      <td className="px-4 py-3 text-slate-500">{formatNumber(c.productCount)}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4 text-sm font-semibold text-slate-900">
+                        {formatNumber(c.productCount)}
+                      </td>
+                      <td className="px-5 py-4">
                         <StatusBadge tone={activeTone(c.isActive)} dot>
                           {c.isActive ? 'Active' : 'Archived'}
                         </StatusBadge>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => openModels(c)}
-                            className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-primary/40 hover:text-primary"
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-primary/40 hover:text-primary"
                           >
                             View Models
                           </button>
@@ -492,7 +494,7 @@ export default function CategoriesPage() {
         <Modal
           title={`Models — ${modal.category.name}`}
           onClose={closeModal}
-          size="md"
+          size="lg"
         >
           {modelModal.type === 'edit' && (
             <div className="mb-4">
@@ -537,19 +539,19 @@ export default function CategoriesPage() {
             />
           ) : (
             <>
-              <p className="mb-2 text-xs text-slate-500">
+              <p className="mb-3 text-xs text-slate-500">
                 {formatNumber(modelsToDisplay.length)} active model
                 {modelsToDisplay.length === 1 ? '' : 's'}
               </p>
               <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
                 {modelsToDisplay.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between gap-2 px-3.5 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                        <SmartphoneIcon className="h-3.5 w-3.5" />
+                  <div key={m.id} className="flex items-center justify-between gap-3 px-4 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                        <SmartphoneIcon className="h-4.5 w-4.5" />
                       </span>
                       <div>
-                        <div className="text-sm font-medium text-slate-900">{m.name}</div>
+                        <div className="text-base font-semibold text-slate-900">{m.name}</div>
                         <div className="text-xs text-slate-400">{formatNumber(m.productCount)} products</div>
                       </div>
                     </div>

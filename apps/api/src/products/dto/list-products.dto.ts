@@ -15,12 +15,7 @@ const ALLOWED_LIMITS = [25, 50, 100] as const;
 export const STOCK_STATUS_OPTIONS = ['IN_STOCK', 'LOW_STOCK'] as const;
 export type StockStatusOption = (typeof STOCK_STATUS_OPTIONS)[number];
 
-export const SORT_BY_OPTIONS = [
-  'createdAt',
-  'name',
-  'stock',
-  'price',
-] as const;
+export const SORT_BY_OPTIONS = ['createdAt', 'name', 'stock', 'price'] as const;
 export type SortByOption = (typeof SORT_BY_OPTIONS)[number];
 
 export const SORT_ORDER_OPTIONS = ['asc', 'desc'] as const;

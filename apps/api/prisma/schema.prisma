@@ -33,6 +33,9 @@ enum UnitStatus {
 
 enum DeviceCondition {
   BRAND_NEW
+  // Sealed, box-packed device that has never been opened/used — distinct
+  // from BRAND_NEW (which also covers an opened-but-unused unit).
+  BRAND_NEW_PIN_PACK
   OPEN_BOX
   USED
   REFURBISHED

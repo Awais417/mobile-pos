@@ -43,7 +43,12 @@ export class CategoriesService extends TenantScopedService {
 
     const products = await this.prisma.product.findMany({
       where: { businessId, isActive: true },
-      select: { id: true, categoryId: true, isSerialized: true, stockQty: true },
+      select: {
+        id: true,
+        categoryId: true,
+        isSerialized: true,
+        stockQty: true,
+      },
     });
     const availabilityMap = await computeAvailabilityMap(
       this.prisma,

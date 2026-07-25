@@ -327,7 +327,10 @@ export default function DashboardPage() {
                   tickFormatter={fmtDate}
                   tick={{ fontSize: 12, fill: '#64748b' }}
                 />
-                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                <YAxis
+                  tickFormatter={(v) => formatNumber(v as number)}
+                  tick={{ fontSize: 12, fill: '#64748b' }}
+                />
                 <Tooltip
                   labelFormatter={(v) => fmtDate(v as string)}
                   formatter={(value, name) => {

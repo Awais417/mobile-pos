@@ -32,6 +32,21 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Numeric inputs keep manual keyboard entry but never show the browser's
+   built-in +/- spinner — applied globally so every number field across the
+   app (POS, product forms, unit cards, inventory, etc.) looks consistent
+   without needing a class on each input. Purely cosmetic: min/max, step,
+   validation and value handling are all untouched by this rule. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
 /* Slim, unobtrusive scrollbars for scroll containers (sidebar nav, main content, tables) */
 .scrollbar-thin {
   scrollbar-width: thin;

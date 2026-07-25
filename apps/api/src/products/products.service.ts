@@ -121,7 +121,8 @@ export class ProductsService extends TenantScopedService {
       stock: Prisma.sql`stock`,
       price: Prisma.sql`sale_price`,
     };
-    const orderDir = query.sortOrder === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+    const orderDir =
+      query.sortOrder === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
     const orderBy = Prisma.sql`${SORT_COLUMN[query.sortBy] ?? SORT_COLUMN.createdAt} ${orderDir}, id ${orderDir}`;
 
     const baseQuery = Prisma.sql`
@@ -218,7 +219,9 @@ export class ProductsService extends TenantScopedService {
       salePrice: r.sale_price.toString(),
       isSerialized: r.is_serialized,
       createdAt: r.created_at,
-      category: r.category_id ? { id: r.category_id, name: r.category_name } : null,
+      category: r.category_id
+        ? { id: r.category_id, name: r.category_name }
+        : null,
       model: r.model_id ? { id: r.model_id, name: r.model_name } : null,
       stock: r.stock,
       condition: r.condition,
@@ -226,7 +229,10 @@ export class ProductsService extends TenantScopedService {
       mixedConditions: r.mixed_conditions,
       mixedColors: r.mixed_colors,
       mixedPta: r.mixed_pta,
-      status: r.stock <= r.reorder_level ? ('LOW_STOCK' as const) : ('IN_STOCK' as const),
+      status:
+        r.stock <= r.reorder_level
+          ? ('LOW_STOCK' as const)
+          : ('IN_STOCK' as const),
     }));
 
     return {
@@ -453,11 +459,14 @@ export class ProductsService extends TenantScopedService {
             ram: override?.ram ?? dto.ram ?? null,
             storage: override?.storage ?? dto.storage ?? null,
             color: override?.color ?? dto.color,
-            conditionGrade: override?.conditionGrade ?? dto.conditionGrade ?? null,
+            conditionGrade:
+              override?.conditionGrade ?? dto.conditionGrade ?? null,
             batteryHealth: override?.batteryHealth ?? dto.batteryHealth ?? null,
             ptaStatus: override?.ptaStatus ?? dto.ptaStatus,
             deviceCondition: override?.deviceCondition ?? dto.deviceCondition,
-            isNew: (override?.deviceCondition ?? dto.deviceCondition) === 'BRAND_NEW',
+            isNew:
+              (override?.deviceCondition ?? dto.deviceCondition) ===
+              'BRAND_NEW',
             boxIncluded: dto.boxIncluded ?? false,
             chargerIncluded: dto.chargerIncluded ?? false,
             warrantyDays: dto.warrantyDays ?? 0,

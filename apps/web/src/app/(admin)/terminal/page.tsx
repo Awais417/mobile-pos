@@ -10,7 +10,12 @@ import {
   ProductUnit,
   DeviceCondition,
 } from '@/lib/product-units';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { formatCurrency, formatNumber, toWholeRupees } from '@/lib/format';
+import {
+  stripDecimalPoint,
+  blockDecimalKeyDown,
+  blockDecimalPaste,
+} from '@/lib/whole-number-input';
 import { Modal } from '@/components/ui/Modal';
 import { Drawer } from '@/components/ui/Drawer';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -60,6 +65,7 @@ const WALLET_PROVIDERS = [
 
 const CONDITION_LABELS: Record<DeviceCondition, string> = {
   BRAND_NEW: 'Brand New',
+  BRAND_NEW_PIN_PACK: 'Brand New / Pin Pack',
   OPEN_BOX: 'Open Box',
   USED: 'Used',
   REFURBISHED: 'Refurbished',
@@ -129,7 +135,7 @@ export default function TerminalPage() {
       const key = `unit-${unit.id}`;
       setCart((prev) => {
         if (prev.some((c) => c.key === key)) return prev; // ek hi phone dobara add nahi hoga
-        const defaultPrice = Number(unit.salePrice);
+        const defaultPrice = toWholeRupees(unit.salePrice);
         return [
           ...prev,
           {
@@ -157,7 +163,7 @@ export default function TerminalPage() {
             : c,
         );
       }
-      const defaultPrice = Number(product.salePrice);
+      const defaultPrice = toWholeRupees(product.salePrice);
       return [
         ...prev,
         {
@@ -277,7 +283,10 @@ export default function TerminalPage() {
     );
   }
 
-  function changePrice(key: string, value: string) {
+  function changePrice(key: string, rawValue: string) {
+    // Sale price is a whole-number-only field — decimals are stripped at
+    // the input level, never rounded after the fact.
+    const value = stripDecimalPoint(rawValue);
     const num = parseFloat(value);
     setCart((prev) =>
       prev.map((c) =>
@@ -640,13 +649,13 @@ export default function TerminalPage() {
                   {c.unit ? (
                     // Phone — quantity fixed 1, price editable (negotiation)
                     <div>
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-3">
                         <button
                           type="button"
                           onClick={() => focusAndSelectPrice(c.key)}
-                          className="flex items-center gap-1 text-xs text-slate-500 transition hover:text-primary"
+                          className="flex items-center gap-1.5 text-sm text-slate-500 transition hover:text-primary"
                         >
-                          <PencilIcon className="h-3 w-3" />
+                          <PencilIcon className="h-4 w-4" />
                           Edit Price
                         </button>
                         <input
@@ -654,12 +663,15 @@ export default function TerminalPage() {
                             priceInputRefs.current[c.key] = el;
                           }}
                           type="number"
+                          step="1"
                           value={c.priceInput}
                           onChange={(e) => changePrice(c.key, e.target.value)}
+                          onKeyDown={blockDecimalKeyDown}
+                          onPaste={blockDecimalPaste}
                           onBlur={() => markPriceTouched(c.key)}
                           placeholder="Enter selling price"
                           aria-label={`Price for ${c.product.name}`}
-                          className={`w-28 shrink-0 rounded-lg border bg-white px-2 py-1 text-right text-sm font-bold text-slate-900 focus:outline-none ${
+                          className={`w-36 shrink-0 rounded-xl border bg-white px-3 py-2.5 text-right text-base font-bold text-slate-900 focus:outline-none focus:ring-4 focus:ring-primary-soft ${
                             c.priceTouched && !c.priceInput.trim()
                               ? 'border-red-400 focus:border-red-500'
                               : 'border-slate-200 focus:border-primary'
@@ -695,14 +707,14 @@ export default function TerminalPage() {
                             <PlusIcon className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1">
-                          <div className="flex items-center gap-1.5">
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() => focusAndSelectPrice(c.key)}
-                              className="flex items-center gap-1 text-xs text-slate-500 transition hover:text-primary"
+                              className="flex items-center gap-1.5 text-sm text-slate-500 transition hover:text-primary"
                             >
-                              <PencilIcon className="h-3 w-3" />
+                              <PencilIcon className="h-4 w-4" />
                               Edit Price
                             </button>
                             <input
@@ -710,14 +722,17 @@ export default function TerminalPage() {
                                 priceInputRefs.current[c.key] = el;
                               }}
                               type="number"
+                              step="1"
                               value={c.priceInput}
                               onChange={(e) =>
                                 changePrice(c.key, e.target.value)
                               }
+                              onKeyDown={blockDecimalKeyDown}
+                              onPaste={blockDecimalPaste}
                               onBlur={() => markPriceTouched(c.key)}
                               placeholder="Enter selling price"
                               aria-label={`Price for ${c.product.name}`}
-                              className={`w-24 rounded-lg border bg-white px-2 py-1 text-right text-sm font-bold text-slate-900 focus:outline-none ${
+                              className={`w-32 rounded-xl border bg-white px-3 py-2.5 text-right text-base font-bold text-slate-900 focus:outline-none focus:ring-4 focus:ring-primary-soft ${
                                 c.priceTouched && !c.priceInput.trim()
                                   ? 'border-red-400 focus:border-red-500'
                                   : 'border-slate-200 focus:border-primary'
