@@ -3004,8 +3004,6 @@ function ProductsContent() {
             <DetailItem label="Model" value={modal.unit.product?.model?.name ?? '—'} />
             <DetailItem label="SKU" value={modal.unit.product?.sku ?? '—'} />
             <DetailItem label="IMEI" value={modal.unit.imei1 ?? '—'} />
-            <DetailItem label="IMEI 2" value={modal.unit.imei2 ?? '—'} />
-            <DetailItem label="Serial Number" value={modal.unit.serialNumber ?? '—'} />
           </DetailSection>
           <DetailSection title="Specifications & Condition">
             <DetailItem label="RAM" value={modal.unit.ram ?? '—'} />

@@ -28,6 +28,7 @@ import {
   AlertTriangleIcon,
   EyeIcon,
   UsersIcon,
+  Trash2Icon,
 } from '@/components/icons';
 import type { ComponentType } from 'react';
 import type { IconProps } from '@/components/icons';
@@ -180,11 +181,11 @@ export default function SalesHistoryPage() {
     try {
       await archiveSale(archiveTarget.id, archiveReason.trim() || undefined);
       setSales((prev) => prev.filter((s) => s.id !== archiveTarget.id));
-      showToast('success', 'Sale archived. Revenue and profit are unaffected.');
+      showToast('success', 'Sale deleted. Revenue and profit are unaffected.');
       setArchiveTarget(null);
       setArchiveReason('');
     } catch {
-      showToast('error', 'Could not archive this sale.');
+      showToast('error', 'Could not delete this sale.');
     } finally {
       setArchiving(false);
     }
@@ -339,7 +340,7 @@ export default function SalesHistoryPage() {
                             actions={[
                               { label: 'View', icon: EyeIcon, variant: 'view', onClick: () => setViewSale(sale) },
                               ...(isAdmin
-                                ? [{ label: 'Archive', icon: InboxIcon, variant: 'delete' as const, onClick: () => setArchiveTarget(sale) }]
+                                ? [{ label: 'Delete', icon: Trash2Icon, variant: 'delete' as const, onClick: () => setArchiveTarget(sale) }]
                                 : []),
                             ]}
                           />
@@ -393,18 +394,10 @@ export default function SalesHistoryPage() {
                 </span>
               </div>
               {viewSale.paymentMethod === 'CASH' && viewSale.cashReceived && (
-                <>
-                  <div className="flex justify-between">
-                    <span>Cash Received</span>
-                    <span>{formatCurrency(viewSale.cashReceived)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Change Given</span>
-                    <span>
-                      {formatCurrency(parseFloat(viewSale.cashReceived) - parseFloat(viewSale.totalAmount))}
-                    </span>
-                  </div>
-                </>
+                <div className="flex justify-between">
+                  <span>Cash Received</span>
+                  <span>{formatCurrency(viewSale.cashReceived)}</span>
+                </div>
               )}
               {isAdmin && (
                 <div className="flex justify-between">
@@ -417,13 +410,13 @@ export default function SalesHistoryPage() {
         </Drawer>
       )}
 
-      {/* Archive confirmation — hides from history only; revenue, profit, and
+      {/* Delete confirmation — hides from history only; revenue, profit, and
           inventory are untouched. Not a Return. */}
       {archiveTarget && (
         <ConfirmDialog
-          title="Archive This Bill?"
-          description={`Bill #${archiveTarget.dailyInvoiceNumber} will be hidden from Sales History. Revenue, profit, and financial records remain unchanged.`}
-          confirmLabel={archiving ? 'Archiving...' : 'Archive Bill'}
+          title="Delete This Bill?"
+          description={`Bill #${archiveTarget.dailyInvoiceNumber} will be deleted from Sales History. Revenue, profit, and financial records remain unchanged.`}
+          confirmLabel={archiving ? 'Deleting...' : 'Delete Bill'}
           variant="danger"
           loading={archiving}
           onConfirm={handleArchive}

@@ -15,7 +15,6 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SummaryCard } from '@/components/ui/SummaryCard';
 import { SearchInput } from '@/components/ui/SearchInput';
-import { FilterToolbar } from '@/components/ui/FilterToolbar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton, SkeletonCard } from '@/components/ui/Skeletons';
 import { Modal } from '@/components/ui/Modal';
@@ -64,6 +63,24 @@ function conditionLabel(condition: DeviceCondition | null | undefined): string {
   return CONDITION_OPTIONS.find((o) => o.value === condition)?.label ?? '—';
 }
 
+// One row per Model — every unit sharing the same Model is folded into a
+// single record so the table shows "iPhone 13 — Stock 3" instead of one row
+// per IMEI. Grouped by the real Model.id (falling back to Product.id only
+// for the rare unit whose product has no Model assigned) — never by name —
+// so two differently-specced devices of the same model (different color/
+// storage/RAM/condition/PTA) still combine, while two genuinely different
+// models never do.
+interface ModelGroup {
+  key: string;
+  modelName: string;
+  categoryName: string;
+  // In-stock unit count only — sold/reserved units are never counted here,
+  // even though `units` below (sourced from filteredUnits) may include them
+  // if a broader status filter is ever selected.
+  stock: number;
+  units: ProductUnit[];
+}
+
 export default function InventoryPage() {
   const { user } = useCurrentUser();
   const isAdmin = user?.role === 'ADMIN';
@@ -74,6 +91,7 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewUnit, setViewUnit] = useState<ProductUnit | null>(null);
+  const [viewGroup, setViewGroup] = useState<ModelGroup | null>(null);
 
   const [search, setSearch] = useState('');
   // Default view = Available only (the physical warehouse). Sold/Reserved
@@ -169,6 +187,32 @@ export default function InventoryPage() {
     });
   }, [units, search, statusFilter, categoryFilter, modelFilter, conditionFilter, ptaFilter]);
 
+  // Fold filteredUnits down to one row per Model.id (Product.id fallback).
+  // Preserves insertion order so the grouped list doesn't jump around as
+  // units load.
+  const groupedRows = useMemo(() => {
+    const map = new Map<string, ModelGroup>();
+    for (const u of filteredUnits) {
+      const key = u.product?.model?.id
+        ? `model-${u.product.model.id}`
+        : `product-${u.product?.id ?? u.productId}`;
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          key,
+          modelName: u.product?.model?.name ?? u.product?.name ?? '—',
+          categoryName: u.product?.category?.name ?? '—',
+          stock: 0,
+          units: [],
+        };
+        map.set(key, group);
+      }
+      group.units.push(u);
+      if (u.status === 'IN_STOCK') group.stock += 1;
+    }
+    return Array.from(map.values());
+  }, [filteredUnits]);
+
   const cards = [
     { label: 'Total Inventory', value: formatNumber(totalInventory), icon: BoxesIcon, color: 'bg-slate-100 text-slate-600' },
     { label: 'Available', value: formatNumber(availableDevices), icon: SmartphoneIcon, color: 'bg-emerald-50 text-emerald-600' },
@@ -210,75 +254,11 @@ export default function InventoryPage() {
           />
         </div>
 
-        <FilterToolbar hasActiveFilters={hasActiveFilters} onClear={clearFilters}>
-          <select
-            value={categoryFilter}
-            onChange={(e) => handleCategoryFilterChange(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-100"
-          >
-            <option value="">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={modelFilter}
-            onChange={(e) => setModelFilter(e.target.value)}
-            disabled={modelsForFilter.length === 0}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:bg-slate-50"
-          >
-            <option value="">All Models</option>
-            {modelsForFilter.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={conditionFilter}
-            onChange={(e) => setConditionFilter(e.target.value as '' | DeviceCondition)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-100"
-          >
-            <option value="">All Conditions</option>
-            {CONDITION_OPTIONS.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={ptaFilter}
-            onChange={(e) => setPtaFilter(e.target.value as '' | PtaStatus)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-100"
-          >
-            <option value="">All PTA Statuses</option>
-            {PTA_OPTIONS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as '' | UnitStatus)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 focus:outline-none focus:ring-4 focus:ring-slate-100"
-          >
-            <option value="">All Availability</option>
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </FilterToolbar>
-
         {/* Table */}
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
             <TableSkeleton />
-          ) : filteredUnits.length === 0 ? (
+          ) : groupedRows.length === 0 ? (
             <EmptyState
               icon={InboxIcon}
               title={units.length === 0 ? 'No inventory records found' : 'No devices found'}
@@ -290,50 +270,30 @@ export default function InventoryPage() {
             />
           ) : (
             <div className="scrollbar-thin overflow-x-auto">
-              <table className="w-full min-w-275 text-left text-sm">
+              <table className="w-full min-w-175 text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-5 py-3.5 font-medium">Category</th>
                     <th className="px-5 py-3.5 font-medium">Model</th>
-                    <th className="px-5 py-3.5 font-medium">IMEI / Serial</th>
-                    <th className="px-5 py-3.5 font-medium">Storage</th>
-                    <th className="px-5 py-3.5 font-medium">Color</th>
-                    <th className="px-5 py-3.5 font-medium">Condition</th>
-                    <th className="px-5 py-3.5 font-medium">PTA Status</th>
-                    {isAdmin && <th className="px-5 py-3.5 font-medium">Cost Price</th>}
-                    <th className="px-5 py-3.5 font-medium">Selling Price</th>
-                    <th className="px-5 py-3.5 font-medium">Availability</th>
+                    <th className="px-5 py-3.5 font-medium">Stock</th>
                     <th className="px-5 py-3.5 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUnits.map((u) => (
-                    <tr key={u.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
-                      <td className="px-5 py-4 text-slate-500">{u.product?.category?.name ?? '—'}</td>
-                      <td className="px-5 py-4 text-base font-semibold text-slate-900">{u.product?.model?.name ?? u.product?.name ?? '—'}</td>
-                      <td className="px-5 py-4 font-mono text-xs text-slate-700">
-                        {u.imei1 ?? u.serialNumber ?? '—'}
-                      </td>
-                      <td className="px-5 py-4 text-slate-500">{u.product?.storage ?? '—'}</td>
-                      <td className="px-5 py-4 text-slate-500">{u.color ?? '—'}</td>
-                      <td className="px-5 py-4 text-slate-500">{conditionLabel(u.deviceCondition)}</td>
-                      <td className="px-5 py-4 text-slate-500">{ptaLabel(u.ptaStatus)}</td>
-                      {isAdmin && (
-                        <td className="px-5 py-4 text-slate-500">
-                          {u.costPrice != null ? formatCurrency(u.costPrice) : '—'}
-                        </td>
-                      )}
+                  {groupedRows.map((g) => (
+                    <tr key={g.key} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
+                      <td className="px-5 py-4 text-slate-500">{g.categoryName}</td>
+                      <td className="px-5 py-4 text-base font-semibold text-slate-900">{g.modelName}</td>
                       <td className="px-5 py-4">
-                        <PriceDisplay value={u.salePrice} size="lg" />
-                      </td>
-                      <td className="px-5 py-4">
-                        <StatusBadge tone={unitStatusTone(u.status)}>{unitStatusLabel(u.status)}</StatusBadge>
+                        <StatusBadge tone={g.stock > 0 ? 'success' : 'neutral'}>
+                          Stock: {formatNumber(g.stock)}
+                        </StatusBadge>
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => setViewUnit(u)}
-                            aria-label="View details"
+                            onClick={() => setViewGroup(g)}
+                            aria-label={`View details for ${g.modelName}`}
                             className="cursor-pointer rounded-lg border border-transparent p-1.5 text-slate-400 transition hover:bg-blue-50 hover:text-blue-600"
                           >
                             <EyeIcon className="h-4 w-4" />
@@ -348,6 +308,80 @@ export default function InventoryPage() {
           )}
         </div>
       </div>
+
+      {viewGroup && (
+        <Modal
+          title={viewGroup.modelName}
+          onClose={() => setViewGroup(null)}
+          size="xl"
+          panelClassName="sm:!max-w-[88vw] xl:!max-w-[85vw] sm:!min-h-[75vh]"
+          headerExtra={
+            <StatusBadge tone={viewGroup.stock > 0 ? 'success' : 'neutral'}>
+              Stock: {formatNumber(viewGroup.stock)}
+            </StatusBadge>
+          }
+        >
+          <p className="-mt-2 mb-6 text-sm text-slate-500">
+            {viewGroup.categoryName} · {viewGroup.units.length} unit
+            {viewGroup.units.length === 1 ? '' : 's'} on record
+          </p>
+          <div className="scrollbar-thin -mx-7 overflow-x-auto px-7">
+            <table className="w-full min-w-275 text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="py-4 pr-8 font-medium">IMEI / Serial</th>
+                  <th className="py-4 pr-8 font-medium">Storage</th>
+                  <th className="py-4 pr-8 font-medium">RAM</th>
+                  <th className="py-4 pr-8 font-medium">Color</th>
+                  <th className="py-4 pr-8 font-medium">Condition</th>
+                  <th className="py-4 pr-8 font-medium">PTA Status</th>
+                  {isAdmin && <th className="py-4 pr-8 font-medium">Cost Price</th>}
+                  <th className="py-4 pr-8 font-medium">Sale Price</th>
+                  <th className="py-4 pr-8 font-medium">Status</th>
+                  <th className="py-4 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {viewGroup.units.map((u) => (
+                  <tr key={u.id} className="transition-colors hover:bg-slate-50/70">
+                    <td className="whitespace-nowrap py-4 pr-8 font-mono text-sm text-slate-700">
+                      {u.imei1 ?? u.serialNumber ?? '—'}
+                    </td>
+                    <td className="whitespace-nowrap py-4 pr-8 text-slate-600">{u.product?.storage ?? '—'}</td>
+                    <td className="whitespace-nowrap py-4 pr-8 text-slate-600">{u.ram ?? '—'}</td>
+                    <td className="whitespace-nowrap py-4 pr-8 text-slate-600">{u.color ?? '—'}</td>
+                    <td className="whitespace-nowrap py-4 pr-8 text-slate-600">{conditionLabel(u.deviceCondition)}</td>
+                    <td className="whitespace-nowrap py-4 pr-8 text-slate-600">{ptaLabel(u.ptaStatus)}</td>
+                    {isAdmin && (
+                      <td className="whitespace-nowrap py-4 pr-8 text-slate-600">
+                        {u.costPrice != null ? formatCurrency(u.costPrice) : '—'}
+                      </td>
+                    )}
+                    <td className="whitespace-nowrap py-4 pr-8">
+                      <PriceDisplay value={u.salePrice} size="md" />
+                    </td>
+                    <td className="whitespace-nowrap py-4 pr-8">
+                      <StatusBadge tone={unitStatusTone(u.status)}>{unitStatusLabel(u.status)}</StatusBadge>
+                    </td>
+                    <td className="py-4">
+                      <button
+                        onClick={() => {
+                          setViewGroup(null);
+                          setViewUnit(u);
+                        }}
+                        aria-label="View unit details"
+                        className="cursor-pointer rounded-lg border border-transparent p-1.5 text-slate-400 transition hover:bg-blue-50 hover:text-blue-600"
+                      >
+                        <EyeIcon className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Modal>
+      )}
 
       {viewUnit && (
         <Modal

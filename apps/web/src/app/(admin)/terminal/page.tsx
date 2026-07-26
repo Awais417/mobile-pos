@@ -1682,21 +1682,10 @@ export default function TerminalPage() {
                     </span>
                   </div>
                   {receipt.paymentMethod === 'CASH' && receipt.cashReceived && (
-                    <>
-                      <div className="flex justify-between">
-                        <span>Cash Received</span>
-                        <span>{formatCurrency(receipt.cashReceived)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Change</span>
-                        <span>
-                          {formatCurrency(
-                            parseFloat(receipt.cashReceived) -
-                              parseFloat(receipt.totalAmount),
-                          )}
-                        </span>
-                      </div>
-                    </>
+                    <div className="flex justify-between">
+                      <span>Cash Received</span>
+                      <span>{formatCurrency(receipt.cashReceived)}</span>
+                    </div>
                   )}
                 </div>
 
