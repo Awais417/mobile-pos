@@ -73,4 +73,14 @@ export class CreateSaleDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // Cashier-edited final Grand Total (whole rupees) — overrides the sum of
+  // item line totals. The item sum itself is always preserved separately as
+  // subtotalAmount; the difference is stored as discountAmount rather than
+  // altering any item's price.
+  @ApiProperty({ required: false, example: 48000 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  finalTotal?: number;
 }

@@ -63,6 +63,11 @@ const WALLET_PROVIDERS = [
   'Other',
 ];
 
+// Temporarily hides only the Grand Total Edit trigger — the label, amount,
+// and all editing logic/state (startEditTotal/saveEditedTotal/etc.) stay
+// exactly as they are; flip back to true to restore the button.
+const SHOW_GRAND_TOTAL_EDIT = false;
+
 const CONDITION_LABELS: Record<DeviceCondition, string> = {
   BRAND_NEW: 'Brand New',
   BRAND_NEW_PIN_PACK: 'Brand New / Pin Pack',
@@ -99,6 +104,25 @@ export default function TerminalPage() {
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
   const [pickerUnits, setPickerUnits] = useState<ProductUnit[]>([]);
   const [loadingUnits, setLoadingUnits] = useState(false);
+  // Multi-select within the picker — tracked by ProductUnit.id (never the
+  // grouped Product ID) so each physical device is selected independently.
+  const [pickerSelectedIds, setPickerSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmingPicker, setConfirmingPicker] = useState(false);
+
+  // Grand Total edit — lets the cashier manually set the final payable total
+  // at checkout. `subtotal` (the cart's own item-price sum) is never touched;
+  // this is a top-level override on top of it. `null` means "use the
+  // calculated subtotal as-is". Reset whenever the cart itself changes, so a
+  // stale override never silently carries over onto a different set of items.
+  const [totalOverride, setTotalOverride] = useState<number | null>(null);
+  const [editingTotal, setEditingTotal] = useState(false);
+  const [totalInput, setTotalInput] = useState('');
+
+  useEffect(() => {
+    setTotalOverride(null);
+    setEditingTotal(false);
+    setTotalInput('');
+  }, [cart]);
 
   // Payment modal state
   const [showPayment, setShowPayment] = useState(false);
@@ -181,6 +205,7 @@ export default function TerminalPage() {
 
   async function openUnitPicker(product: Product) {
     setPickerProduct(product);
+    setPickerSelectedIds(new Set());
     setLoadingUnits(true);
     try {
       const units = await getProductUnits({
@@ -195,6 +220,12 @@ export default function TerminalPage() {
     }
   }
 
+  function closeUnitPicker() {
+    setPickerProduct(null);
+    setPickerUnits([]);
+    setPickerSelectedIds(new Set());
+  }
+
   function handleProductClick(product: Product) {
     if (product.isSerialized) {
       if ((product.availableUnits ?? 0) === 0) return; // Out of stock — not sellable
@@ -205,11 +236,62 @@ export default function TerminalPage() {
     }
   }
 
-  function selectUnitFromPicker(unit: ProductUnit) {
-    if (!pickerProduct) return;
-    addToCart(pickerProduct, unit);
-    setPickerProduct(null);
-    setPickerUnits([]);
+  // Toggle a device card's selection — clicking an unselected card selects
+  // it (green), clicking an already-selected card deselects it. Every unit
+  // is tracked independently by its own ProductUnit.id, so any number of
+  // devices from the same grouped product can be highlighted at once.
+  function toggleUnitSelection(unitId: string) {
+    setPickerSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(unitId)) next.delete(unitId);
+      else next.add(unitId);
+      return next;
+    });
+  }
+
+  // Confirms the current multi-selection — re-checks each selected unit's
+  // live status first (a device can be sold by another sale between opening
+  // the picker and confirming) and only adds the ones still IN_STOCK.
+  // Anything no longer available is skipped and reported via the same
+  // "no longer available" message already used by the IMEI search flow.
+  async function confirmPickerSelection() {
+    if (!pickerProduct || pickerSelectedIds.size === 0) return;
+    const product = pickerProduct;
+    const selectedIds = Array.from(pickerSelectedIds);
+    setConfirmingPicker(true);
+    try {
+      const freshUnits = await getProductUnits({ productId: product.id });
+      const unavailable: { imei: string; status?: string }[] = [];
+      for (const id of selectedIds) {
+        const fresh = freshUnits.find((u) => u.id === id);
+        const fallback = pickerUnits.find((u) => u.id === id);
+        if (fresh && fresh.status === 'IN_STOCK') {
+          addToCart(product, fresh);
+        } else {
+          unavailable.push({
+            imei: fresh?.imei1 ?? fallback?.imei1 ?? 'unknown',
+            status: fresh?.status,
+          });
+        }
+      }
+      if (unavailable.length > 0) {
+        const sentences = unavailable.map(
+          (u) =>
+            `This device (IMEI: ${u.imei}) is no longer available${
+              u.status ? ` (${u.status})` : ''
+            }.`,
+        );
+        setMessage(`${sentences.join(' ')} Select another device.`);
+        setLastAdded(null);
+      } else {
+        setMessage(null);
+      }
+    } catch {
+      setMessage('Could not verify device availability. Please try again.');
+    } finally {
+      setConfirmingPicker(false);
+      closeUnitPicker();
+    }
   }
 
   // Ek hi search box — har keystroke par products live-filter hote hain (neeche),
@@ -331,9 +413,36 @@ export default function TerminalPage() {
     searchRef.current?.focus();
   }
 
-  const total = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  // Original calculated total from item prices — preserved for audit/
+  // reference regardless of any Grand Total override below.
+  const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  // Effective payable total used everywhere below (payment, receipt, sale
+  // record) — the cashier-edited value when set, else the calculated subtotal.
+  const total = totalOverride !== null ? totalOverride : subtotal;
   const itemCount = cart.reduce((sum, c) => sum + c.quantity, 0);
   const hasInvalidPrice = cart.some((c) => !(c.price > 0));
+
+  function startEditTotal() {
+    if (cart.length === 0 || checkingOut) return;
+    setTotalInput(String(Math.round(total)));
+    setEditingTotal(true);
+  }
+
+  function cancelEditTotal() {
+    setEditingTotal(false);
+    setTotalInput('');
+  }
+
+  // Guards against saving twice in a row (e.g. a fast double Enter/click) —
+  // once applied, editingTotal flips off immediately so the Save action can't
+  // fire again for the same input.
+  function saveEditedTotal() {
+    if (!editingTotal) return;
+    const parsed = totalInput.trim() === '' ? NaN : Number(totalInput);
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+    setTotalOverride(Math.round(parsed));
+    setEditingTotal(false);
+  }
 
   const filteredProducts = products.filter((p) => {
     if (categoryFilter !== 'ALL' && p.categoryId !== categoryFilter)
@@ -352,6 +461,7 @@ export default function TerminalPage() {
 
   function openPaymentModal() {
     if (cart.length === 0) return;
+    if (editingTotal) return; // finish or cancel the Grand Total edit first
     if (hasInvalidPrice) {
       setCart((prev) => prev.map((c) => ({ ...c, priceTouched: true })));
       return;
@@ -399,6 +509,9 @@ export default function TerminalPage() {
         cashReceived: paymentMethod === 'CASH' ? cashReceivedNum : undefined,
         provider: paymentMethod === 'ONLINE_WALLET' ? provider : undefined,
         bankName: paymentMethod === 'BANK_TRANSFER' ? bankName : undefined,
+        // Only sent when the cashier actually edited the Grand Total —
+        // the backend keeps the item-price sum as subtotalAmount either way.
+        finalTotal: totalOverride !== null ? total : undefined,
       });
       setReceipt(sale);
       setEditingReceipt(false);
@@ -763,13 +876,84 @@ export default function TerminalPage() {
                 </div>
                 <div className="flex justify-between text-sm text-slate-500">
                   <span>Subtotal</span>
-                  <span>{formatCurrency(total)}</span>
+                  <span>{formatCurrency(subtotal)}</span>
                 </div>
+                {totalOverride !== null && (
+                  <div className="flex justify-between text-sm text-slate-500">
+                    <span>Adjustment</span>
+                    <span
+                      className={
+                        subtotal - total >= 0
+                          ? 'text-emerald-600'
+                          : 'text-red-600'
+                      }
+                    >
+                      {subtotal - total >= 0 ? '-' : '+'}
+                      {formatCurrency(Math.abs(subtotal - total))}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between border-t border-slate-100 pt-1.5">
                   <span className="text-base font-semibold text-slate-900">
                     Grand Total
                   </span>
-                  <PriceDisplay value={total} size="xl" />
+                  {editingTotal ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoFocus
+                        value={totalInput}
+                        onChange={(e) =>
+                          setTotalInput(e.target.value.replace(/[^0-9]/g, ''))
+                        }
+                        onKeyDown={(e) => {
+                          blockDecimalKeyDown(e);
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            saveEditedTotal();
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            cancelEditTotal();
+                          }
+                        }}
+                        onPaste={blockDecimalPaste}
+                        aria-label="Edit grand total"
+                        className="w-24 rounded-lg border border-primary bg-white px-2 py-1 text-right text-base font-bold text-slate-900 focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                      />
+                      <button
+                        type="button"
+                        onClick={saveEditedTotal}
+                        disabled={totalInput.trim() === ''}
+                        aria-label="Save grand total"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <CheckCircleIcon className="h-4.5 w-4.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditTotal}
+                        aria-label="Cancel editing grand total"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                      >
+                        <XIcon className="h-4.5 w-4.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <PriceDisplay value={total} size="xl" />
+                      {SHOW_GRAND_TOTAL_EDIT && (
+                        <button
+                          type="button"
+                          onClick={startEditTotal}
+                          aria-label="Edit grand total"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-primary"
+                        >
+                          <PencilIcon className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               {hasInvalidPrice && (
@@ -780,7 +964,12 @@ export default function TerminalPage() {
               )}
               <button
                 onClick={openPaymentModal}
-                disabled={checkingOut || cart.length === 0 || hasInvalidPrice}
+                disabled={
+                  checkingOut ||
+                  cart.length === 0 ||
+                  hasInvalidPrice ||
+                  editingTotal
+                }
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Proceed to Checkout
@@ -1051,22 +1240,50 @@ export default function TerminalPage() {
       {pickerProduct && (
         <Modal
           title={`Select a device — ${pickerProduct.name}`}
-          onClose={() => {
-            setPickerProduct(null);
-            setPickerUnits([]);
-          }}
-          size="md"
+          onClose={closeUnitPicker}
+          size="xl"
+          panelClassName="lg:!max-w-5xl xl:!max-w-6xl sm:!min-h-[70vh]"
+          footer={
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-slate-500">
+                {pickerSelectedIds.size > 0
+                  ? `${pickerSelectedIds.size} device${pickerSelectedIds.size > 1 ? 's' : ''} selected`
+                  : 'Select one or more devices'}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={closeUnitPicker}
+                  disabled={confirmingPicker}
+                  className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmPickerSelection}
+                  disabled={pickerSelectedIds.size === 0 || confirmingPicker}
+                  className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {confirmingPicker && <Loader2Icon className="h-4 w-4 animate-spin" />}
+                  {confirmingPicker
+                    ? 'Adding...'
+                    : `Add ${pickerSelectedIds.size > 0 ? pickerSelectedIds.size : ''} to Cart`}
+                </button>
+              </div>
+            </div>
+          }
         >
-          <p className="-mt-3 mb-4 text-xs text-slate-500">
+          <p className="-mt-3 mb-5 text-sm text-slate-500">
             {[pickerProduct.category?.name, pickerProduct.storage]
               .filter(Boolean)
               .join(' · ')}
           </p>
 
           {loadingUnits ? (
-            <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <SkeletonCard key={i} className="h-16" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonCard key={i} className="h-24" />
               ))}
             </div>
           ) : pickerUnits.length === 0 ? (
@@ -1076,38 +1293,46 @@ export default function TerminalPage() {
               description="No units are currently in stock for this model."
             />
           ) : (
-            <div className="space-y-2">
-              {pickerUnits.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => selectUnitFromPicker(u)}
-                  className="flex w-full items-center justify-between rounded-xl border border-slate-200 p-3 text-left transition hover:border-primary/50 hover:shadow-sm"
-                >
-                  <div className="min-w-0 flex-1 pr-3">
-                    <div className="font-mono text-xs text-slate-700">
-                      IMEI: {u.imei1}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {pickerUnits.map((u) => {
+                const selected = pickerSelectedIds.has(u.id);
+                return (
+                  <button
+                    key={u.id}
+                    onClick={() => toggleUnitSelection(u.id)}
+                    aria-pressed={selected}
+                    className={`flex w-full items-center justify-between gap-3 rounded-2xl border p-4 text-left transition ${
+                      selected
+                        ? 'border-emerald-500 bg-emerald-50'
+                        : 'border-slate-200 hover:border-primary/50 hover:shadow-sm'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1 pr-3">
+                      <div className="font-mono text-sm text-slate-700">
+                        IMEI: {u.imei1}
+                      </div>
+                      <div className="mt-1.5 truncate text-sm text-slate-500">
+                        {[
+                          u.color,
+                          CONDITION_LABELS[u.deviceCondition],
+                          u.conditionGrade ? `${u.conditionGrade}/10` : null,
+                          u.batteryHealth != null
+                            ? `${u.batteryHealth}% battery`
+                            : null,
+                          u.ptaStatus,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </div>
                     </div>
-                    <div className="mt-0.5 truncate text-xs text-slate-500">
-                      {[
-                        u.color,
-                        CONDITION_LABELS[u.deviceCondition],
-                        u.conditionGrade ? `${u.conditionGrade}/10` : null,
-                        u.batteryHealth != null
-                          ? `${u.batteryHealth}% battery`
-                          : null,
-                        u.ptaStatus,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </div>
-                  </div>
-                  <PriceDisplay
-                    value={u.salePrice}
-                    size="md"
-                    className="shrink-0"
-                  />
-                </button>
-              ))}
+                    <PriceDisplay
+                      value={u.salePrice}
+                      size="lg"
+                      className="shrink-0"
+                    />
+                  </button>
+                );
+              })}
             </div>
           )}
         </Modal>
@@ -1138,6 +1363,27 @@ export default function TerminalPage() {
                   </div>
                 ))}
               </div>
+              {totalOverride !== null && (
+                <div className="mt-3 space-y-1">
+                  <div className="flex justify-between text-sm text-slate-500">
+                    <span>Subtotal</span>
+                    <span>{formatCurrency(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-slate-500">
+                    <span>Adjustment</span>
+                    <span
+                      className={
+                        subtotal - total >= 0
+                          ? 'text-emerald-600'
+                          : 'text-red-600'
+                      }
+                    >
+                      {subtotal - total >= 0 ? '-' : '+'}
+                      {formatCurrency(Math.abs(subtotal - total))}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-900 px-4 py-3">
                 <span className="text-sm font-medium text-slate-300">
                   Grand Total

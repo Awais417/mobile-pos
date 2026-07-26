@@ -15,6 +15,9 @@ export interface CreateSaleInput {
   cashReceived?: number;
   provider?: string;
   bankName?: string;
+  // Cashier-edited final Grand Total (whole rupees) — omitted when the
+  // Grand Total was left as calculated from the cart's item prices.
+  finalTotal?: number;
 }
 
 export interface SaleItem {
@@ -33,6 +36,12 @@ export interface Sale {
   id: string;
   dailyInvoiceNumber: number;
   totalAmount: string;
+  // Original sum of item line totals, preserved for audit/reference even
+  // when totalAmount was manually overridden at checkout.
+  subtotalAmount: string;
+  // subtotalAmount - totalAmount — positive for a discount, negative for a
+  // surcharge; zero when the Grand Total was never edited.
+  discountAmount: string;
   createdAt: string;
   items: SaleItem[];
   paymentMethod: PaymentMethod;

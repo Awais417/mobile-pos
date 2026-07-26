@@ -23,7 +23,7 @@ export class SalesService extends TenantScopedService {
     this.assertTenant(businessId);
 
     const createdSale = await this.prisma.$transaction(async (tx) => {
-      let totalAmount = new Prisma.Decimal(0);
+      let subtotalAmount = new Prisma.Decimal(0);
       const saleItemsData: {
         productId: string;
         productName: string;
@@ -72,7 +72,7 @@ export class SalesService extends TenantScopedService {
 
           const finalPrice = item.price ?? Number(unit.salePrice);
           const lineTotal = new Prisma.Decimal(finalPrice);
-          totalAmount = totalAmount.add(lineTotal);
+          subtotalAmount = subtotalAmount.add(lineTotal);
 
           saleItemsData.push({
             productId: product.id,
@@ -98,7 +98,7 @@ export class SalesService extends TenantScopedService {
             ? new Prisma.Decimal(item.price)
             : product.salePrice;
           const lineTotal = unitPrice.mul(item.quantity);
-          totalAmount = totalAmount.add(lineTotal);
+          subtotalAmount = subtotalAmount.add(lineTotal);
 
           saleItemsData.push({
             productId: product.id,
@@ -118,6 +118,17 @@ export class SalesService extends TenantScopedService {
           });
         }
       }
+
+      // The cashier may have overridden the Grand Total at checkout (a
+      // manual adjustment/discount, never a change to any item's own price).
+      // subtotalAmount — the true sum of item line totals — is always kept
+      // as-is for audit; totalAmount becomes the edited figure and
+      // discountAmount records the gap between the two.
+      const totalAmount =
+        dto.finalTotal !== undefined
+          ? new Prisma.Decimal(dto.finalTotal)
+          : subtotalAmount;
+      const discountAmount = subtotalAmount.sub(totalAmount);
 
       if (dto.paymentMethod === PaymentMethod.CASH) {
         if (dto.cashReceived === undefined) {
@@ -144,6 +155,8 @@ export class SalesService extends TenantScopedService {
           businessId,
           cashierId,
           totalAmount,
+          subtotalAmount,
+          discountAmount,
           dailyInvoiceNumber: todaySalesCount + 1,
           paymentMethod: dto.paymentMethod,
           cashReceived: dto.cashReceived ?? null,

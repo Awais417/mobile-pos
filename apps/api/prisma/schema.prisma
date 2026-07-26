@@ -246,7 +246,16 @@ model Sale {
   businessId  String
   outletId    String?
   cashierId   String
+  // Final payable amount — equals subtotalAmount unless the cashier edited
+  // the Grand Total at checkout, in which case this is that edited value.
   totalAmount Decimal   @db.Decimal(12, 2)
+  // Original sum of item line totals, preserved as-is for audit/reference
+  // even when totalAmount was manually overridden.
+  subtotalAmount Decimal @db.Decimal(12, 2) @default(0)
+  // subtotalAmount - totalAmount — positive when the edited Grand Total is a
+  // discount, negative when it's a surcharge. Zero whenever the Grand Total
+  // was never edited.
+  discountAmount Decimal @db.Decimal(12, 2) @default(0)
   createdAt   DateTime  @default(now())
   // deletedAt != null == "archived" — hidden from Sales History only. Revenue/
   // Profit queries (getSummary/getDashboard) deliberately ignore this field,
