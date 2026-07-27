@@ -27,7 +27,6 @@ import {
   InboxIcon,
   AlertTriangleIcon,
   EyeIcon,
-  UsersIcon,
   Trash2Icon,
 } from '@/components/icons';
 import type { ComponentType } from 'react';
@@ -109,6 +108,14 @@ function paymentLabel(sale: Sale): { text: string; icon: ComponentType<IconProps
     default:
       return { text: sale.paymentMethod, icon: WalletIcon };
   }
+}
+
+// First sold item's name, plus a "+X more" suffix when the sale has
+// additional items — from the sale's own items, never recomputed elsewhere.
+function productSummary(sale: Sale): string {
+  if (sale.items.length === 0) return '—';
+  const extra = sale.items.length - 1;
+  return extra > 0 ? `${sale.items[0].productName} +${extra} more` : sale.items[0].productName;
 }
 
 // costPrice sale ke waqt snapshot ki gayi hai — backend-authoritative values
@@ -293,7 +300,7 @@ export default function SalesHistoryPage() {
                   <tr>
                     <th className="px-4 py-3 font-medium">Invoice</th>
                     <th className="px-4 py-3 font-medium">Date &amp; Time</th>
-                    <th className="px-4 py-3 font-medium">Salesman</th>
+                    <th className="px-4 py-3 font-medium">Product</th>
                     <th className="px-4 py-3 font-medium">Payment Method</th>
                     <th className="px-4 py-3 font-medium">Total</th>
                     {isAdmin && <th className="px-4 py-3 font-medium">Profit</th>}
@@ -313,9 +320,8 @@ export default function SalesHistoryPage() {
                           {formatDate(sale.createdAt)} · {formatTime(sale.createdAt)}
                         </td>
                         <td className="px-4 py-3 text-slate-500">
-                          <span className="inline-flex items-center gap-1.5">
-                            <UsersIcon className="h-3.5 w-3.5 text-slate-400" />
-                            {sale.cashierName}
+                          <span className="block max-w-50 truncate" title={sale.items.map((i) => i.productName).join(', ')}>
+                            {productSummary(sale)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-slate-500">

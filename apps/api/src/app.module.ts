@@ -15,6 +15,7 @@ import { ModelsModule } from './models/models.module';
 import { SalesModule } from './sales/sales.module';
 import { StaffModule } from './staff/staff.module';
 import { HealthModule } from './health/health.module';
+import { ExpensesModule } from './expenses/expenses.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { HealthModule } from './health/health.module';
     SalesModule,
     StaffModule,
     HealthModule,
+    ExpensesModule,
   ],
   providers: [
     {

@@ -57,6 +57,7 @@ model Business {
   sales        Sale[]
   productUnits ProductUnit[]
   saleAuditLogs SaleAuditLog[]
+  expenses      Expense[]
 }
 
 model Outlet {
@@ -297,6 +298,29 @@ model SaleAuditLog {
 
   @@index([businessId])
   @@index([saleId])
+}
+
+// A manually-entered Finance/Dashboard expense — created only when an admin
+// explicitly submits the "Subtract Expense" form. Never written to by any
+// other flow (sales, inventory, POS) and never auto-created.
+model Expense {
+  id         String   @id @default(cuid())
+  businessId String
+  amount     Decimal  @db.Decimal(12, 2)
+  title      String
+  note       String?
+  // User-chosen expense date — drives every Daily/Weekly/Monthly summary.
+  // Deliberately separate from createdAt (the system insert timestamp, kept
+  // only to show "Created time" in Expense History).
+  date       DateTime
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([createdAt])
+  @@index([date])
 }
 
 model SaleItem {
