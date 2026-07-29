@@ -189,7 +189,7 @@ export class ProductsService extends TenantScopedService {
       id: string;
       name: string;
       sku: string;
-      sale_price: Prisma.Decimal;
+      sale_price: Prisma.Decimal | null;
       reorder_level: number;
       is_serialized: boolean;
       created_at: Date;
@@ -216,7 +216,7 @@ export class ProductsService extends TenantScopedService {
       id: r.id,
       name: r.name,
       sku: r.sku,
-      salePrice: r.sale_price.toString(),
+      salePrice: r.sale_price != null ? r.sale_price.toString() : null,
       isSerialized: r.is_serialized,
       createdAt: r.created_at,
       category: r.category_id

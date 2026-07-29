@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent, useRef } from 'react';
 import { getProducts, Product } from '@/lib/products';
 import { getCategories, Category } from '@/lib/categories';
 import { createSale, Sale, PaymentMethod } from '@/lib/sales';
+import { getClients, createClient, ClientListItem } from '@/lib/clients';
 import {
   getProductUnits,
   searchByImei,
@@ -38,6 +39,7 @@ import {
   ShoppingCartIcon,
   SmartphoneIcon,
   Trash2Icon,
+  UserIcon,
   WalletIcon,
   XIcon,
 } from '@/components/icons';
@@ -87,6 +89,12 @@ export default function TerminalPage() {
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [receipt, setReceipt] = useState<Sale | null>(null);
+  const [receiptClientInfo, setReceiptClientInfo] = useState<{
+    fullName: string;
+    phone: string;
+    amountPaid: number;
+    remainingBalance: number;
+  } | null>(null);
   const [editingReceipt, setEditingReceipt] = useState(false);
   const [editMessage, setEditMessage] = useState<string | null>(null);
   const [closingReceipt, setClosingReceipt] = useState(false);
@@ -132,6 +140,20 @@ export default function TerminalPage() {
   const [bankName, setBankName] = useState('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
+  // Client selection — null = walk-in (existing/default behavior). Chosen
+  // once per sale; cleared whenever the cart is cleared/a sale completes.
+  const [clients, setClients] = useState<ClientListItem[]>([]);
+  const [selectedClient, setSelectedClient] = useState<ClientListItem | null>(null);
+  const [showClientPicker, setShowClientPicker] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
+  const [addingClient, setAddingClient] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientAddress, setNewClientAddress] = useState('');
+  const [newClientNote, setNewClientNote] = useState('');
+  const [savingClient, setSavingClient] = useState(false);
+  const [clientPickerError, setClientPickerError] = useState<string | null>(null);
+
   async function loadData() {
     try {
       const [prods, cats] = await Promise.all([
@@ -144,6 +166,13 @@ export default function TerminalPage() {
       setMessage('Unable to load products. Please try again.');
     } finally {
       setLoading(false);
+    }
+    // Clients list failing shouldn't block the product grid — checkout
+    // simply falls back to "walk-in only" until it loads.
+    try {
+      setClients(await getClients());
+    } catch {
+      setClients([]);
     }
   }
 
@@ -159,7 +188,9 @@ export default function TerminalPage() {
       const key = `unit-${unit.id}`;
       setCart((prev) => {
         if (prev.some((c) => c.key === key)) return prev; // ek hi phone dobara add nahi hoga
-        const defaultPrice = toWholeRupees(unit.salePrice);
+        // No suggested price set at add-time — leave the input blank instead
+        // of prefilling "0"; the final price must be entered here before checkout.
+        const defaultPrice = unit.salePrice != null ? toWholeRupees(unit.salePrice) : 0;
         return [
           ...prev,
           {
@@ -168,7 +199,7 @@ export default function TerminalPage() {
             unit,
             quantity: 1,
             price: defaultPrice,
-            priceInput: String(defaultPrice),
+            priceInput: unit.salePrice != null ? String(defaultPrice) : '',
             priceTouched: false,
           },
         ];
@@ -187,7 +218,9 @@ export default function TerminalPage() {
             : c,
         );
       }
-      const defaultPrice = toWholeRupees(product.salePrice);
+      // No suggested price set at add-time — leave the input blank instead
+      // of prefilling "0"; the final price must be entered here before checkout.
+      const defaultPrice = product.salePrice != null ? toWholeRupees(product.salePrice) : 0;
       return [
         ...prev,
         {
@@ -195,7 +228,7 @@ export default function TerminalPage() {
           product,
           quantity: 1,
           price: defaultPrice,
-          priceInput: String(defaultPrice),
+          priceInput: product.salePrice != null ? String(defaultPrice) : '',
           priceTouched: false,
         },
       ];
@@ -399,6 +432,7 @@ export default function TerminalPage() {
   function clearCart() {
     setCart([]);
     setLastAdded(null);
+    setSelectedClient(null);
   }
 
   function requestClearCart() {
@@ -474,18 +508,128 @@ export default function TerminalPage() {
     setShowPayment(true);
   }
 
+  function openClientPicker() {
+    setClientSearch('');
+    setAddingClient(false);
+    setClientPickerError(null);
+    setShowClientPicker(true);
+  }
+
+  function closeClientPicker() {
+    setShowClientPicker(false);
+    setAddingClient(false);
+    setClientPickerError(null);
+  }
+
+  function chooseClient(client: ClientListItem) {
+    setSelectedClient(client);
+    closeClientPicker();
+  }
+
+  function continueAsWalkIn() {
+    setSelectedClient(null);
+    closeClientPicker();
+  }
+
+  function startAddClient() {
+    setNewClientName('');
+    setNewClientPhone(clientSearch.trim());
+    setNewClientAddress('');
+    setNewClientNote('');
+    setClientPickerError(null);
+    setAddingClient(true);
+  }
+
+  async function handleAddNewClient(e: FormEvent) {
+    e.preventDefault();
+    setSavingClient(true);
+    setClientPickerError(null);
+    try {
+      const result = await createClient({
+        fullName: newClientName.trim(),
+        phone: newClientPhone.trim(),
+        address: newClientAddress.trim() || undefined,
+        note: newClientNote.trim() || undefined,
+      });
+      setSelectedClient({
+        id: result.id,
+        fullName: result.fullName,
+        phone: result.phone,
+        address: result.address,
+        note: result.note,
+        createdAt: result.createdAt,
+        archivedAt: null,
+        salesCount: 0,
+        totalAmount: '0.00',
+        totalPaid: '0.00',
+        remainingBalance: '0.00',
+        status: null,
+        latestSale: null,
+      });
+      setClients((prev) =>
+        prev.some((c) => c.id === result.id)
+          ? prev
+          : [
+              {
+                id: result.id,
+                fullName: result.fullName,
+                phone: result.phone,
+                address: result.address,
+                note: result.note,
+                createdAt: result.createdAt,
+                archivedAt: null,
+                salesCount: 0,
+                totalAmount: '0.00',
+                totalPaid: '0.00',
+                remainingBalance: '0.00',
+                status: null,
+                latestSale: null,
+              },
+              ...prev,
+            ],
+      );
+      closeClientPicker();
+    } catch {
+      setClientPickerError('Could not add client. Please check the details and try again.');
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
+  const clientSearchResults = clients.filter((c) => {
+    const q = clientSearch.trim().toLowerCase();
+    if (!q) return true;
+    return c.fullName.toLowerCase().includes(q) || c.phone.includes(q);
+  });
+
   const cashReceivedNum = parseFloat(cashReceived) || 0;
+  // Only meaningful when a client is selected — the amount actually being
+  // paid right now, which may be less than the Grand Total (partial payment).
+  // Walk-in sales are unaffected and still require the full total.
+  const amountPayingNow = selectedClient ? Math.min(cashReceivedNum, total) : total;
+  const remainingAfterSale = selectedClient ? Math.max(total - amountPayingNow, 0) : 0;
 
   async function handleConfirmPayment() {
     setPaymentError(null);
 
-    if (paymentMethod === 'CASH') {
-      if (!cashReceived || cashReceivedNum < total) {
-        setPaymentError(
-          'The full payment must be received before completing the sale.',
-        );
+    // Walk-in sales keep the original rule: full payment required upfront,
+    // and only CASH tracks a received amount at all. A client sale may
+    // instead be paid partially, in which case "amount paying now" applies
+    // regardless of payment method and must simply fall within [0, total].
+    if (selectedClient) {
+      if (cashReceived.trim() === '' || cashReceivedNum < 0) {
+        setPaymentError('Enter the amount being paid now.');
         return;
       }
+      if (cashReceivedNum > total) {
+        setPaymentError('Amount paying now cannot exceed the Grand Total.');
+        return;
+      }
+    } else if (paymentMethod === 'CASH' && (!cashReceived || cashReceivedNum < total)) {
+      setPaymentError(
+        'The full payment must be received before completing the sale.',
+      );
+      return;
     }
 
     setCheckingOut(true);
@@ -512,8 +656,20 @@ export default function TerminalPage() {
         // Only sent when the cashier actually edited the Grand Total —
         // the backend keeps the item-price sum as subtotalAmount either way.
         finalTotal: totalOverride !== null ? total : undefined,
+        clientId: selectedClient?.id,
+        amountPaid: selectedClient ? amountPayingNow : undefined,
       });
       setReceipt(sale);
+      setReceiptClientInfo(
+        selectedClient
+          ? {
+              fullName: selectedClient.fullName,
+              phone: selectedClient.phone,
+              amountPaid: amountPayingNow,
+              remainingBalance: remainingAfterSale,
+            }
+          : null,
+      );
       setEditingReceipt(false);
       setEditMessage(null);
       clearCart();
@@ -535,6 +691,7 @@ export default function TerminalPage() {
     setClosingReceipt(true);
     setTimeout(() => {
       setReceipt(null);
+      setReceiptClientInfo(null);
       setEditingReceipt(false);
       setEditMessage(null);
       setClosingReceipt(false);
@@ -646,8 +803,8 @@ export default function TerminalPage() {
           productId: product.id,
           productName: product.name,
           quantity: 1,
-          unitPrice: product.salePrice,
-          lineTotal: product.salePrice,
+          unitPrice: product.salePrice ?? '0',
+          lineTotal: product.salePrice ?? '0',
           // Ye local receipt-edit item hai (kabhi API ko nahi jaata) — costPrice
           // sirf SaleItem type ko satisfy karne ke liye, display-only hai
           costPrice: product.costPrice ?? '0',
@@ -1139,12 +1296,16 @@ export default function TerminalPage() {
                           </div>
                         )}
                         <div className="mt-auto pt-1.5">
-                          <PriceDisplay
-                            value={p.salePrice}
-                            size="sm"
-                            tone="default"
-                            className="text-primary"
-                          />
+                          {p.salePrice != null ? (
+                            <PriceDisplay
+                              value={p.salePrice}
+                              size="sm"
+                              tone="default"
+                              className="text-primary"
+                            />
+                          ) : (
+                            <span className="text-sm text-slate-400">Set price at sale</span>
+                          )}
                           <div className="mt-1.5 flex items-center gap-1">
                             {out ? (
                               <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
@@ -1325,11 +1486,11 @@ export default function TerminalPage() {
                           .join(' · ')}
                       </div>
                     </div>
-                    <PriceDisplay
-                      value={u.salePrice}
-                      size="lg"
-                      className="shrink-0"
-                    />
+                    {u.salePrice != null ? (
+                      <PriceDisplay value={u.salePrice} size="lg" className="shrink-0" />
+                    ) : (
+                      <span className="shrink-0 text-sm text-slate-400">Set at sale</span>
+                    )}
                   </button>
                 );
               })}
@@ -1341,6 +1502,30 @@ export default function TerminalPage() {
       {/* Checkout modal */}
       {showPayment && (
         <Modal title="Checkout" onClose={() => setShowPayment(false)} size="xl">
+          {/* Client — walk-in by default; select existing, add new, or search by name/phone */}
+          <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
+                <UserIcon className="h-4.5 w-4.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-900">
+                  {selectedClient ? selectedClient.fullName : 'Walk-in Customer'}
+                </div>
+                {selectedClient && (
+                  <div className="truncate text-xs text-slate-500">{selectedClient.phone}</div>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={openClientPicker}
+              className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              {selectedClient ? 'Change' : 'Select Client'}
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             {/* Sale summary */}
             <div>
@@ -1430,75 +1615,103 @@ export default function TerminalPage() {
               </div>
 
               <div className="mt-4 space-y-3">
-                {paymentMethod === 'CASH' && (
-                  <div className="rounded-xl bg-primary-soft p-4 text-center">
-                    <p className="text-sm text-slate-600">Amount Received</p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      {formatCurrency(total)}
-                    </p>
-                  </div>
-                )}
-
-                {paymentMethod === 'CARD' && (
-                  <div className="rounded-xl bg-primary-soft p-4 text-center">
-                    <p className="text-sm text-slate-600">Amount to charge</p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      {formatCurrency(total)}
-                    </p>
-                  </div>
-                )}
-
                 {paymentMethod === 'ONLINE_WALLET' && (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">
-                        Wallet Provider
-                      </label>
-                      <select
-                        value={provider}
-                        onChange={(e) => setProvider(e.target.value)}
-                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
-                      >
-                        {WALLET_PROVIDERS.map((w) => (
-                          <option key={w} value={w}>
-                            {w}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="rounded-xl bg-purple-50 p-4 text-center">
-                      <p className="text-sm text-slate-600">
-                        Amount to receive
-                      </p>
-                      <p className="text-2xl font-bold text-slate-900">
-                        {formatCurrency(total)}
-                      </p>
-                    </div>
-                  </>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Wallet Provider
+                    </label>
+                    <select
+                      value={provider}
+                      onChange={(e) => setProvider(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                    >
+                      {WALLET_PROVIDERS.map((w) => (
+                        <option key={w} value={w}>
+                          {w}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
 
                 {paymentMethod === 'BANK_TRANSFER' && (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600">
-                        Bank Name
-                      </label>
-                      <input
-                        value={bankName}
-                        onChange={(e) => setBankName(e.target.value)}
-                        placeholder="HBL"
-                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
-                      />
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Bank Name
+                    </label>
+                    <input
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      placeholder="HBL"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                    />
+                  </div>
+                )}
+
+                {selectedClient ? (
+                  // Client sale — a clear payment summary: Total Bill,
+                  // Initial Payment (editable, may be less than the Grand
+                  // Total), Remaining Balance, Payment Status, and Payment
+                  // Method — e.g. "Total Bill: Rs 120,000 / Initial Payment:
+                  // Rs 50,000 / Remaining Balance: Rs 70,000 / PARTIAL / Cash".
+                  <div className="rounded-xl bg-primary-soft p-4">
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Total Bill</span>
+                      <span className="font-semibold text-slate-900">{formatCurrency(total)}</span>
                     </div>
-                    <div className="rounded-xl bg-amber-50 p-4 text-center">
-                      <p className="text-sm text-slate-600">
-                        Amount to receive
-                      </p>
-                      <p className="text-2xl font-bold text-slate-900">
-                        {formatCurrency(total)}
-                      </p>
+                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                      Initial Payment
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={total}
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-lg font-bold text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                    />
+                    <div className="mt-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Remaining Balance</span>
+                      <span
+                        className={`font-semibold ${remainingAfterSale > 0 ? 'text-red-600' : 'text-emerald-600'}`}
+                      >
+                        {formatCurrency(remainingAfterSale)}
+                      </span>
                     </div>
-                  </>
+                    <div className="mt-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Payment Status</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          amountPayingNow >= total
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : amountPayingNow > 0
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {amountPayingNow >= total ? 'PAID' : amountPayingNow > 0 ? 'PARTIAL' : 'UNPAID'}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
+                      <span className="text-slate-600">Payment Method</span>
+                      <span className="font-medium text-slate-900">
+                        {paymentMethod === 'CASH' && 'Cash'}
+                        {paymentMethod === 'CARD' && 'Card'}
+                        {paymentMethod === 'ONLINE_WALLET' && (provider || 'Wallet')}
+                        {paymentMethod === 'BANK_TRANSFER' &&
+                          (bankName ? `Bank (${bankName})` : 'Bank Transfer')}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-primary-soft p-4 text-center">
+                    <p className="text-sm text-slate-600">
+                      {paymentMethod === 'CASH' ? 'Amount Received' : 'Amount to charge'}
+                    </p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {formatCurrency(total)}
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
@@ -1528,6 +1741,153 @@ export default function TerminalPage() {
               {checkingOut ? 'Processing...' : 'Complete Sale'}
             </button>
           </div>
+        </Modal>
+      )}
+
+      {/* Client picker — search existing clients by name/phone, add a new
+          one without leaving the POS, or continue as walk-in. */}
+      {showClientPicker && (
+        <Modal
+          title={addingClient ? 'Add New Client' : 'Select Client'}
+          onClose={closeClientPicker}
+          size="md"
+        >
+          {addingClient ? (
+            <form onSubmit={handleAddNewClient} className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Full Name</label>
+                <input
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  required
+                  placeholder="e.g. Ahmed Khan"
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">Phone Number</label>
+                <input
+                  value={newClientPhone}
+                  onChange={(e) => setNewClientPhone(e.target.value)}
+                  required
+                  placeholder="03001234567"
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Address <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <input
+                  value={newClientAddress}
+                  onChange={(e) => setNewClientAddress(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">
+                  Note <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <textarea
+                  value={newClientNote}
+                  onChange={(e) => setNewClientNote(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                />
+              </div>
+
+              {clientPickerError && (
+                <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                  <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+                  {clientPickerError}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setAddingClient(false)}
+                  disabled={savingClient}
+                  className="flex-1 rounded-xl border border-slate-300 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingClient}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savingClient && <Loader2Icon className="h-4 w-4 animate-spin" />}
+                  {savingClient ? 'Adding...' : 'Add Client'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <div className="relative mb-3">
+                <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  autoFocus
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  placeholder="Search by name or phone number..."
+                  className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-3.5 text-sm text-slate-900 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary-soft"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={continueAsWalkIn}
+                className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                Continue as Walk-in Customer
+              </button>
+
+              <div className="max-h-72 space-y-1.5 overflow-y-auto">
+                {clientSearchResults.length === 0 ? (
+                  <div className="py-6 text-center text-sm text-slate-400">
+                    No clients match &quot;{clientSearch}&quot;.
+                  </div>
+                ) : (
+                  clientSearchResults.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => chooseClient(c)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-primary/40 hover:bg-primary-soft/40"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-900">{c.fullName}</div>
+                        <div className="truncate text-xs text-slate-500">{c.phone}</div>
+                      </div>
+                      {c.status && (
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            c.status === 'PAID'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : c.status === 'PARTIAL'
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-red-50 text-red-700'
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={startAddClient}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"
+              >
+                <PlusIcon className="h-4 w-4" />
+                Add New Client
+              </button>
+            </>
+          )}
         </Modal>
       )}
 
@@ -1670,6 +2030,14 @@ export default function TerminalPage() {
                 </div>
 
                 <div className="mt-2 border-t border-dashed border-slate-400 pt-2 text-[10px] text-slate-600">
+                  {receiptClientInfo && (
+                    <div className="flex justify-between">
+                      <span>Customer</span>
+                      <span className="font-semibold">
+                        {receiptClientInfo.fullName} ({receiptClientInfo.phone})
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span>Payment</span>
                     <span className="font-semibold">
@@ -1686,6 +2054,30 @@ export default function TerminalPage() {
                       <span>Cash Received</span>
                       <span>{formatCurrency(receipt.cashReceived)}</span>
                     </div>
+                  )}
+                  {receiptClientInfo && (
+                    <>
+                      <div className="flex justify-between">
+                        <span>Initial Payment</span>
+                        <span>{formatCurrency(receiptClientInfo.amountPaid)}</span>
+                      </div>
+                      {receiptClientInfo.remainingBalance > 0 && (
+                        <div className="flex justify-between font-semibold text-red-600">
+                          <span>Remaining Balance</span>
+                          <span>{formatCurrency(receiptClientInfo.remainingBalance)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span>Payment Status</span>
+                        <span className="font-semibold">
+                          {receiptClientInfo.remainingBalance <= 0
+                            ? 'PAID'
+                            : receiptClientInfo.amountPaid > 0
+                              ? 'PARTIAL'
+                              : 'UNPAID'}
+                        </span>
+                      </div>
+                    </>
                   )}
                 </div>
 

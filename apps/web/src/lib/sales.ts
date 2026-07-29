@@ -18,6 +18,12 @@ export interface CreateSaleInput {
   // Cashier-edited final Grand Total (whole rupees) — omitted when the
   // Grand Total was left as calculated from the cart's item prices.
   finalTotal?: number;
+  // Attaches this sale to a Client — omitted for a walk-in sale (unchanged
+  // default behavior).
+  clientId?: string;
+  // Amount being paid right now — only meaningful alongside clientId.
+  // Omit to pay the full total (same as a walk-in sale).
+  amountPaid?: number;
 }
 
 export interface SaleItem {
@@ -30,6 +36,9 @@ export interface SaleItem {
   // Sale ke waqt ki cost snapshot — profit ke display-side calculation ke
   // liye (backend hi authoritative source hai, yahan sirf sum hoti hai)
   costPrice: string;
+  // How much of `quantity` has already been restored to inventory via a
+  // Return or a Void. 0 = nothing returned yet.
+  returnedQuantity?: number;
 }
 
 export interface Sale {
@@ -49,10 +58,42 @@ export interface Sale {
   provider: string | null;
   bankName: string | null;
   cashierName: string;
+  // Null/undefined = walk-in sale, unchanged from before Client Management existed.
+  clientId?: string | null;
+  client?: { id: string; fullName: string; phone: string } | null;
+  // Set once this sale has been voided (cancelled) — inventory already
+  // reversed, excluded from client balances, but never deleted.
+  voidedAt?: string | null;
+}
+
+export interface AddPaymentInput {
+  amount: number;
+  method: PaymentMethod;
+  provider?: string;
+  bankName?: string;
+  note?: string;
+  // When this payment was actually received (ISO date) — lets a later
+  // payment be backdated. Omit to use "now".
+  paidAt?: string;
+}
+
+export interface AddPaymentResult {
+  saleId: string;
+  amountPaid: number;
+  remainingBalance: number;
+  status: 'PAID' | 'PARTIAL';
 }
 
 export async function createSale(input: CreateSaleInput): Promise<Sale> {
   return apiClient.post<Sale>('/sales', input);
+}
+
+// "Pay Remaining" — records one more amount received against a client sale.
+export async function addSalePayment(
+  saleId: string,
+  input: AddPaymentInput,
+): Promise<AddPaymentResult> {
+  return apiClient.post<AddPaymentResult>(`/sales/${saleId}/payments`, input);
 }
 
 export async function getSales(): Promise<Sale[]> {
@@ -65,4 +106,40 @@ export async function getSales(): Promise<Sale[]> {
 // actually does.
 export async function archiveSale(id: string, reason?: string): Promise<void> {
   await apiClient.del(`/sales/${id}`, reason ? { reason } : undefined);
+}
+
+export interface ReturnLineInput {
+  saleItemId: string;
+  quantity: number;
+}
+
+export interface ReturnItemResult {
+  id: string;
+  saleItemId: string;
+  quantity: number;
+  amount: string;
+}
+
+export interface SaleReturnResult {
+  id: string;
+  saleId: string;
+  reason: string | null;
+  totalAmount: string;
+  createdAt: string;
+  items: ReturnItemResult[];
+}
+
+// Returns one or more line items back to inventory — restores the exact
+// IMEI unit(s) or stock quantity. Always linked to the original sale.
+export async function returnSaleItems(
+  saleId: string,
+  input: { items: ReturnLineInput[]; reason?: string },
+): Promise<SaleReturnResult> {
+  return apiClient.post<SaleReturnResult>(`/sales/${saleId}/return`, input);
+}
+
+// Cancels a credit sale entirely — reverses inventory, excludes it from
+// client balances, but the record itself is preserved (never deleted).
+export async function voidSale(saleId: string, reason?: string): Promise<Sale> {
+  return apiClient.post<Sale>(`/sales/${saleId}/void`, reason ? { reason } : undefined);
 }

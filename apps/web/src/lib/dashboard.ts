@@ -13,6 +13,12 @@ export interface DashboardKpis {
   inventoryValue: string;
   lowStockCount: number;
   revenueChangePct: string;
+  // Cash Collection — kept separate from Sales Performance above. An
+  // installment sale's full price counts toward periodRevenue immediately;
+  // only what's actually been received counts here.
+  periodCollected: string;
+  periodExpenses: string;
+  periodNetCash: string;
 }
 
 export interface RevenueTrendPoint {

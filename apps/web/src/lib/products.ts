@@ -7,7 +7,9 @@ export interface Product {
   sku: string;
   barcode: string | null;
   costPrice: string | null;
-  salePrice: string;
+  // Optional — a product can be created with only a Cost Price; the actual
+  // Selling Price is then entered at the point of sale in POS.
+  salePrice: string | null;
   stockQty: number;
   reorderLevel: number;
   isActive: boolean;
@@ -44,7 +46,7 @@ export interface CatalogItem {
   id: string;
   name: string;
   sku: string;
-  salePrice: string;
+  salePrice: string | null;
   isSerialized: boolean;
   createdAt: string;
   category: { id: string; name: string | null } | null;
@@ -92,7 +94,9 @@ export interface CreateProductInput {
   sku: string;
   barcode?: string;
   costPrice: number;
-  salePrice: number;
+  // Optional — the product must be creatable with only a Cost Price; the
+  // final Selling Price is entered later at the point of sale in POS.
+  salePrice?: number;
   stockQty?: number;
   reorderLevel?: number;
   categoryId: string;
@@ -161,7 +165,8 @@ export interface CreatePhoneInput {
   unitOverrides?: UnitOverride[];
 
   costPrice: number;
-  salePrice: number;
+  // Optional — final Selling Price is entered later at the point of sale in POS.
+  salePrice?: number;
 
   supplier?: string;
   notes?: string;

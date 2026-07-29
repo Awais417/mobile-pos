@@ -58,6 +58,9 @@ model Business {
   productUnits ProductUnit[]
   saleAuditLogs SaleAuditLog[]
   expenses      Expense[]
+  clients       Client[]
+  payments      Payment[]
+  saleReturns   SaleReturn[]
 }
 
 model Outlet {
@@ -163,7 +166,9 @@ model Product {
   sku          String
   barcode      String?
   costPrice    Decimal  @db.Decimal(12, 2)
-  salePrice    Decimal  @db.Decimal(12, 2)
+  // Optional — a product can be created with only a Cost Price; the final
+  // selling price is entered per-unit at the point of sale in POS instead.
+  salePrice    Decimal? @db.Decimal(12, 2)
   stockQty     Int      @default(0)
   reorderLevel Int      @default(0)
   isActive     Boolean  @default(true)
@@ -223,7 +228,10 @@ model ProductUnit {
   supplier        String?
 
   costPrice Decimal    @db.Decimal(12, 2)
-  salePrice Decimal    @db.Decimal(12, 2)
+  // Optional — set at add-time only if a suggested price is known; the
+  // actual final price is entered independently per unit at the point of
+  // sale in POS.
+  salePrice Decimal?   @db.Decimal(12, 2)
   status    UnitStatus @default(IN_STOCK)
   notes     String?
 
@@ -242,11 +250,41 @@ model ProductUnit {
   @@index([businessId, createdAt])
 }
 
+// A walk-in customer with no Client record leaves clientId null — every
+// existing sale continues to work exactly as before this field was added.
+model Client {
+  id         String   @id @default(cuid())
+  businessId String
+  fullName   String
+  phone      String
+  address    String?
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Soft delete — hides the client from the active list and the POS client
+  // picker once set. Only ever allowed when the client's outstanding balance
+  // is exactly 0 (see ClientsService.archive). Sales/payments/ledger history
+  // stay fully linked and intact; nothing about them is touched.
+  archivedAt DateTime?
+  archivedBy String?
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sales    Sale[]
+  payments Payment[]
+
+  @@index([businessId])
+  @@index([businessId, phone])
+}
+
 model Sale {
   id          String    @id @default(cuid())
   businessId  String
   outletId    String?
   cashierId   String
+  // Null = walk-in (no client attached) — the pre-existing behavior for
+  // every sale before Client Management was added, and still the default.
+  clientId    String?
   // Final payable amount — equals subtotalAmount unless the cashier edited
   // the Grand Total at checkout, in which case this is that edited value.
   totalAmount Decimal   @db.Decimal(12, 2)
@@ -264,6 +302,12 @@ model Sale {
   deletedAt   DateTime?
   archivedBy    String?
   archiveReason String?
+  // voidedAt != null == this credit sale was cancelled — unlike Archive,
+  // voiding DOES reverse inventory and is excluded from client balances
+  // (see SalesService.voidSale). The row itself is never deleted.
+  voidedAt    DateTime?
+  voidedBy    String?
+  voidReason  String?
   dailyInvoiceNumber Int @default(0)
 
   // Payment details
@@ -275,11 +319,85 @@ model Sale {
   referenceNumber String?
 
   business  Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  // Client delete kabhi Sale delete nahi karti — clientId null ho jaata hai
+  // (SetNull), sale/invoice history intact rehti hai.
+  client    Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
   items     SaleItem[]
   auditLogs SaleAuditLog[]
+  payments  Payment[]
+  returns   SaleReturn[]
 
   @@index([businessId])
   @@index([createdAt])
+  @@index([clientId])
+}
+
+// One header per return action (a client may return several items from the
+// same sale in one visit) — always linked back to the original Sale, never
+// a standalone "give/take" record. Preserved forever, never deleted.
+model SaleReturn {
+  id          String   @id @default(cuid())
+  businessId  String
+  saleId      String
+  reason      String?
+  performedBy String
+  totalAmount Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sale     Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  items    SaleReturnItem[]
+
+  @@index([businessId])
+  @@index([saleId])
+}
+
+model SaleReturnItem {
+  id           String  @id @default(cuid())
+  saleReturnId String
+  saleItemId   String
+  quantity     Int
+  amount       Decimal @db.Decimal(12, 2)
+
+  saleReturn SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+  saleItem   SaleItem   @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+
+  @@index([saleReturnId])
+  @@index([saleItemId])
+}
+
+// One row per amount received against a client Sale — the checkout-time
+// payment AND every later "Pay Remaining" installment. amountPaid/remaining
+// balance are always derived by summing these rows, never stored directly.
+model Payment {
+  id         String        @id @default(cuid())
+  businessId String
+  saleId     String
+  clientId   String?
+  amount     Decimal       @db.Decimal(12, 2)
+  method     PaymentMethod
+  provider   String?
+  bankName   String?
+  note       String?
+  receivedBy String
+  // True only for the payment created inside Sale creation itself (even if
+  // it was Rs 0) — a structural fact, never inferred from paidAt/createdAt
+  // ordering, since a later payment's paidAt can legitimately be backdated
+  // and must never be mistaken for the checkout-time payment.
+  isInitialPayment Boolean @default(false)
+  // User-chosen "received on" date — lets a later payment be backdated
+  // (e.g. logging cash received yesterday). Deliberately separate from
+  // createdAt (the system insert timestamp), same pattern as Expense.date.
+  paidAt     DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sale     Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  client   Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([saleId])
+  @@index([clientId])
 }
 
 // Immutable append-only trail of archive actions — never updated or deleted
@@ -339,7 +457,14 @@ model SaleItem {
   // Agar serialized product (phone) becha gaya, to IMEI record ka reference
   productUnitId String?
 
-  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  // How much of `quantity` has already been restored to inventory — via a
+  // customer Return or a full Void. Never exceeds quantity; a serialized
+  // item only ever goes 0 -> 1 (its quantity is always 1). Prevents the
+  // same item from being restored to stock twice.
+  returnedQuantity Int @default(0)
+
+  sale        Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  returnLines SaleReturnItem[]
 
   @@index([saleId])
 }

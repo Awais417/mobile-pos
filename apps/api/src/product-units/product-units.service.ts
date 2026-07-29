@@ -77,7 +77,7 @@ export class ProductUnitsService extends TenantScopedService {
         warrantyDays: dto.warrantyDays ?? 0,
         supplier: dto.supplier ?? null,
         costPrice: dto.costPrice,
-        salePrice: dto.salePrice,
+        salePrice: dto.salePrice ?? null,
         notes: dto.notes ?? null,
       },
     });

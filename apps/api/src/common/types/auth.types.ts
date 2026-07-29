@@ -1,5 +1,5 @@
-// Role ab ek text hai: "ADMIN", "MANAGER", ya "CASHIER"
-export type Role = 'ADMIN' | 'MANAGER' | 'CASHIER';
+// Role ab ek text hai: "ADMIN" ya "SALESMAN" (matches Prisma's Role enum)
+export type Role = 'ADMIN' | 'SALESMAN';
 
 export interface JwtPayload {
   sub: string;

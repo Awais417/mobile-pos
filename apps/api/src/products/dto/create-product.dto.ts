@@ -29,10 +29,13 @@ export class CreateProductDto {
   @Min(0)
   costPrice!: number;
 
-  @ApiProperty()
+  // Optional — Cost Price alone is enough to create a product; the final
+  // Selling Price can instead be entered per-unit at the point of sale in POS.
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  salePrice!: number;
+  salePrice?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()

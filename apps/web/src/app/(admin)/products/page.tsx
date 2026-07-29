@@ -181,13 +181,17 @@ function buildUnitOverridePayload(u: UnitFormState, isApple: boolean): UnitOverr
 }
 
 // A unit is "Complete" once every field the backend actually requires is
-// filled in and valid — IMEI, Condition and Selling Price always; Cost
-// Price only when the admin-only field is visible at all.
+// filled in and valid — IMEI and Condition always; Cost Price only when the
+// admin-only field is visible at all. Selling Price is optional at this
+// stage (entered later at POS) but if the user did type one in, it must be
+// a valid positive number.
 function isUnitComplete(u: UnitFormState, requireCostPrice: boolean): boolean {
   if (!/^\d{15}$/.test(u.imei.trim())) return false;
   if (!u.deviceCondition) return false;
-  const sale = Number(u.salePrice);
-  if (!u.salePrice.trim() || Number.isNaN(sale) || sale <= 0) return false;
+  if (u.salePrice.trim()) {
+    const sale = Number(u.salePrice);
+    if (Number.isNaN(sale) || sale <= 0) return false;
+  }
   if (requireCostPrice) {
     if (!u.costPrice.trim() || Number.isNaN(Number(u.costPrice)) || Number(u.costPrice) < 0) return false;
   }
@@ -946,7 +950,7 @@ function ViewUnitsModal({
                     {u.costPrice != null ? <PriceDisplay value={u.costPrice} size="sm" /> : '—'}
                   </td>
                   <td className="py-3 pr-4">
-                    <PriceDisplay value={u.salePrice} size="sm" />
+                    {u.salePrice != null ? <PriceDisplay value={u.salePrice} size="sm" /> : '—'}
                   </td>
                   <td className="py-3 pr-4">
                     <StatusBadge tone={unitStatusTone(u.status)}>{unitStatusLabel(u.status)}</StatusBadge>
@@ -1170,7 +1174,7 @@ function UnitCard({
           )}
           <div>
             <label className={labelClass}>
-              Sale Price <span className="text-red-500">*</span>
+              Sale Price <span className="text-slate-400">(optional — can be set at POS)</span>
             </label>
             <input
               value={unit.salePrice}
@@ -1502,7 +1506,7 @@ function ProductsContent() {
       conditionGrade: unit.conditionGrade != null ? String(unit.conditionGrade) : '',
       batteryHealth: unit.batteryHealth != null ? String(unit.batteryHealth) : '',
       costPrice: unit.costPrice ?? '',
-      salePrice: unit.salePrice,
+      salePrice: unit.salePrice ?? '',
       supplier: unit.supplier ?? '',
       notes: unit.notes ?? '',
       warrantyDays: String(unit.warrantyDays ?? 0),
@@ -1547,9 +1551,14 @@ function ProductsContent() {
       if (!productForm.costPrice.trim() || Number(productForm.costPrice) < 0) {
         errs.costPrice = 'Cost price is required.';
       }
-      const sale = Number(productForm.salePrice);
-      if (!productForm.salePrice.trim() || Number.isNaN(sale) || sale <= 0) {
-        errs.salePrice = 'Selling price must be greater than zero.';
+      // Selling Price is optional here — it can be left blank and entered
+      // later at the point of sale in POS. If a value was typed, it must
+      // still be a valid positive number.
+      if (productForm.salePrice.trim()) {
+        const sale = Number(productForm.salePrice);
+        if (Number.isNaN(sale) || sale <= 0) {
+          errs.salePrice = 'Selling price must be greater than zero.';
+        }
       }
       return errs;
     }
@@ -1593,9 +1602,12 @@ function ProductsContent() {
       if (isAdmin && (!u.costPrice.trim() || Number(u.costPrice) < 0)) {
         errs[`unit${i}Cost`] = 'Cost price is required.';
       }
-      const sale = Number(u.salePrice);
-      if (!u.salePrice.trim() || Number.isNaN(sale) || sale <= 0) {
-        errs[`unit${i}Sale`] = 'Selling price must be greater than zero.';
+      // Selling Price is optional at add-time — entered later in POS.
+      if (u.salePrice.trim()) {
+        const sale = Number(u.salePrice);
+        if (Number.isNaN(sale) || sale <= 0) {
+          errs[`unit${i}Sale`] = 'Selling price must be greater than zero.';
+        }
       }
     });
 
@@ -1620,7 +1632,7 @@ function ProductsContent() {
           sku: productForm.sku,
           barcode: productForm.barcode || undefined,
           costPrice: Number(productForm.costPrice),
-          salePrice: Number(productForm.salePrice),
+          salePrice: productForm.salePrice.trim() ? Number(productForm.salePrice) : undefined,
           stockQty: productForm.quantity ? Number(productForm.quantity) : 0,
           reorderLevel: productForm.reorderLevel ? Number(productForm.reorderLevel) : 0,
           color: productForm.color || undefined,
@@ -1659,7 +1671,7 @@ function ProductsContent() {
           conditionGrade: first.conditionGrade ? Number(first.conditionGrade) : undefined,
           batteryHealth: first.batteryHealth ? Number(first.batteryHealth) : undefined,
           costPrice: Number(first.costPrice || 0),
-          salePrice: Number(first.salePrice),
+          salePrice: first.salePrice.trim() ? Number(first.salePrice) : undefined,
           supplier: productForm.supplier || undefined,
           notes: productForm.notes || undefined,
           warrantyDays: productForm.warrantyDays ? Number(productForm.warrantyDays) : undefined,
@@ -1718,9 +1730,12 @@ function ProductsContent() {
       }
     }
 
-    const sale = Number(phoneForm.salePrice);
-    if (!phoneForm.salePrice.trim() || Number.isNaN(sale) || sale <= 0) {
-      errs.salePrice = 'Selling price must be greater than zero.';
+    // Selling Price is optional — can be left blank and set later at POS.
+    if (phoneForm.salePrice.trim()) {
+      const sale = Number(phoneForm.salePrice);
+      if (Number.isNaN(sale) || sale <= 0) {
+        errs.salePrice = 'Selling price must be greater than zero.';
+      }
     }
 
     return errs;
@@ -1757,7 +1772,7 @@ function ProductsContent() {
           conditionGrade: phoneForm.conditionGrade ? Number(phoneForm.conditionGrade) : undefined,
           batteryHealth: phoneForm.batteryHealth ? Number(phoneForm.batteryHealth) : undefined,
           // costPrice qasdan yahan nahi bhejte — locked after creation
-          salePrice: Number(phoneForm.salePrice),
+          salePrice: phoneForm.salePrice.trim() ? Number(phoneForm.salePrice) : undefined,
           supplier: phoneForm.supplier || undefined,
           notes: phoneForm.notes || undefined,
           warrantyDays: phoneForm.warrantyDays ? Number(phoneForm.warrantyDays) : undefined,
@@ -1783,9 +1798,12 @@ function ProductsContent() {
     const errs: Record<string, string> = {};
     if (!accessoryForm.name.trim()) errs.name = 'Product name is required.';
     if (!accessoryForm.categoryId) errs.categoryId = 'Category is required.';
-    const sale = Number(accessoryForm.salePrice);
-    if (!accessoryForm.salePrice.trim() || Number.isNaN(sale) || sale <= 0) {
-      errs.salePrice = 'Selling price must be greater than zero.';
+    // Selling Price is optional — can be left blank and set later at POS.
+    if (accessoryForm.salePrice.trim()) {
+      const sale = Number(accessoryForm.salePrice);
+      if (Number.isNaN(sale) || sale <= 0) {
+        errs.salePrice = 'Selling price must be greater than zero.';
+      }
     }
     return errs;
   }
@@ -1805,7 +1823,7 @@ function ProductsContent() {
         barcode: accessoryForm.barcode || undefined,
         color: accessoryForm.color || undefined,
         compatibility: accessoryForm.compatibility || undefined,
-        salePrice: Number(accessoryForm.salePrice),
+        salePrice: accessoryForm.salePrice.trim() ? Number(accessoryForm.salePrice) : undefined,
         categoryId: accessoryForm.categoryId,
         stockQty: accessoryForm.stockQty ? Number(accessoryForm.stockQty) : 0,
         reorderLevel: accessoryForm.reorderLevel ? Number(accessoryForm.reorderLevel) : 0,
@@ -2045,7 +2063,11 @@ function ProductsContent() {
                         )}
                       </td>
                       <td className="px-5 py-4">
-                        <PriceDisplay value={item.salePrice} size="lg" />
+                        {item.salePrice != null ? (
+                          <PriceDisplay value={item.salePrice} size="lg" />
+                        ) : (
+                          <span className="text-sm text-slate-400">Not set</span>
+                        )}
                       </td>
                       <td className="px-5 py-4">
                         <StatusBadge tone={item.status === 'LOW_STOCK' ? 'danger' : 'success'}>
@@ -2479,7 +2501,8 @@ function ProductsContent() {
                       )}
                       <div>
                         <label className={labelClass}>
-                          Selling Price <span className="text-red-500">*</span>
+                          Selling Price{' '}
+                          <span className="text-slate-400">(optional — can be set at POS)</span>
                         </label>
                         <input
                           value={productForm.salePrice}
@@ -2762,7 +2785,7 @@ function ProductsContent() {
                 )}
                 <div>
                   <label className={labelClass}>
-                    Selling Price <span className="text-red-500">*</span>
+                    Selling Price <span className="text-slate-400">(optional — can be set at POS)</span>
                   </label>
                   <input
                     value={phoneForm.salePrice}
@@ -2937,7 +2960,7 @@ function ProductsContent() {
                 )}
                 <div>
                   <label className={labelClass}>
-                    Selling Price <span className="text-red-500">*</span>
+                    Selling Price <span className="text-slate-400">(optional — can be set at POS)</span>
                   </label>
                   <input
                     value={accessoryForm.salePrice}
@@ -3023,7 +3046,10 @@ function ProductsContent() {
                 value={modal.unit.costPrice != null ? formatCurrency(modal.unit.costPrice) : '—'}
               />
             )}
-            <DetailItem label="Selling Price" value={formatCurrency(modal.unit.salePrice)} />
+            <DetailItem
+              label="Selling Price"
+              value={modal.unit.salePrice != null ? formatCurrency(modal.unit.salePrice) : '—'}
+            />
             <DetailItem label="Stock Status" value={modal.unit.status.replace('_', ' ')} />
           </DetailSection>
           <DetailSection title="Other">
@@ -3067,7 +3093,10 @@ function ProductsContent() {
                 value={modal.product.costPrice != null ? formatCurrency(modal.product.costPrice) : '—'}
               />
             )}
-            <DetailItem label="Selling Price" value={formatCurrency(modal.product.salePrice)} />
+            <DetailItem
+              label="Selling Price"
+              value={modal.product.salePrice != null ? formatCurrency(modal.product.salePrice) : '—'}
+            />
             <DetailItem label="Stock Qty" value={formatNumber(modal.product.stockQty)} />
             <DetailItem label="Stock Alert At" value={formatNumber(modal.product.reorderLevel)} />
           </DetailSection>

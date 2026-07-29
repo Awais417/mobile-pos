@@ -10,7 +10,7 @@ import { Loader2Icon } from '@/components/icons';
 // rather than scattered per-page checks. The real security boundary is still
 // the backend (@Roles on every controller) — this only controls what the
 // Salesman's browser navigates to.
-const SALESMAN_ALLOWED_PATHS = ['/terminal'];
+const SALESMAN_ALLOWED_PATHS = ['/terminal', '/clients'];
 
 export function RoleGate({ children }: { children: ReactNode }) {
   const { user, loading } = useCurrentUser();

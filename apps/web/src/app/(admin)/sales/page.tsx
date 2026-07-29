@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getSales, archiveSale, Sale, PaymentMethod } from '@/lib/sales';
+import { getSales, archiveSale, voidSale, Sale, PaymentMethod } from '@/lib/sales';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useToast } from '@/components/ui/Toast';
 import { formatCurrency, formatNumber } from '@/lib/format';
@@ -28,6 +28,7 @@ import {
   AlertTriangleIcon,
   EyeIcon,
   Trash2Icon,
+  XIcon,
 } from '@/components/icons';
 import type { ComponentType } from 'react';
 import type { IconProps } from '@/components/icons';
@@ -138,6 +139,9 @@ export default function SalesHistoryPage() {
   const [archiveTarget, setArchiveTarget] = useState<Sale | null>(null);
   const [archiveReason, setArchiveReason] = useState('');
   const [archiving, setArchiving] = useState(false);
+  const [voidTarget, setVoidTarget] = useState<Sale | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voiding, setVoiding] = useState(false);
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterKey>('today');
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilterKey>('ALL');
@@ -195,6 +199,25 @@ export default function SalesHistoryPage() {
       showToast('error', 'Could not delete this sale.');
     } finally {
       setArchiving(false);
+    }
+  }
+
+  // Cancels the sale entirely — reverses inventory and (for a client sale)
+  // its balance. Unlike Delete/Archive above, the row stays in this list,
+  // just marked Voided; nothing is hidden or removed.
+  async function handleVoid() {
+    if (!voidTarget) return;
+    setVoiding(true);
+    try {
+      const voided = await voidSale(voidTarget.id, voidReason.trim() || undefined);
+      setSales((prev) => prev.map((s) => (s.id === voided.id ? { ...s, voidedAt: voided.voidedAt } : s)));
+      showToast('success', 'Sale voided — inventory has been restored.');
+      setVoidTarget(null);
+      setVoidReason('');
+    } catch {
+      showToast('error', 'Could not void this sale.');
+    } finally {
+      setVoiding(false);
     }
   }
 
@@ -339,12 +362,19 @@ export default function SalesHistoryPage() {
                           </td>
                         )}
                         <td className="px-4 py-3">
-                          <StatusBadge tone="success">Paid</StatusBadge>
+                          {sale.voidedAt ? (
+                            <StatusBadge tone="neutral">Voided</StatusBadge>
+                          ) : (
+                            <StatusBadge tone="success">Paid</StatusBadge>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <ActionMenu
                             actions={[
                               { label: 'View', icon: EyeIcon, variant: 'view', onClick: () => setViewSale(sale) },
+                              ...(isAdmin && !sale.voidedAt
+                                ? [{ label: 'Void', icon: XIcon, variant: 'delete' as const, onClick: () => setVoidTarget(sale) }]
+                                : []),
                               ...(isAdmin
                                 ? [{ label: 'Delete', icon: Trash2Icon, variant: 'delete' as const, onClick: () => setArchiveTarget(sale) }]
                                 : []),
@@ -439,6 +469,36 @@ export default function SalesHistoryPage() {
             value={archiveReason}
             onChange={(e) => setArchiveReason(e.target.value)}
             placeholder="e.g. Duplicate entry, corrected in a later sale"
+            rows={2}
+            className={inputClass}
+          />
+        </ConfirmDialog>
+      )}
+
+      {/* Void confirmation — cancels the sale entirely: every item is
+          restored to inventory (and, for a client sale, its balance is
+          reversed). The bill stays visible here, marked Voided. */}
+      {voidTarget && (
+        <ConfirmDialog
+          title={`Void Bill #${voidTarget.dailyInvoiceNumber}?`}
+          description="This restores every item in this sale back to inventory and cancels it entirely. The bill stays in Sales History, marked Voided."
+          confirmLabel={voiding ? 'Voiding...' : 'Void Sale'}
+          variant="danger"
+          loading={voiding}
+          onConfirm={handleVoid}
+          onCancel={() => {
+            setVoidTarget(null);
+            setVoidReason('');
+          }}
+        >
+          <label className={labelClass} htmlFor="void-reason">
+            Reason <span className="font-normal text-slate-400">(optional)</span>
+          </label>
+          <textarea
+            id="void-reason"
+            value={voidReason}
+            onChange={(e) => setVoidReason(e.target.value)}
+            placeholder="e.g. Sale created by mistake"
             rows={2}
             className={inputClass}
           />

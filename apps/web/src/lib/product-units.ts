@@ -34,7 +34,9 @@ export interface ProductUnit {
   warrantyDays: number;
   supplier: string | null;
   costPrice: string | null;
-  salePrice: string;
+  // Optional at add-time — left null until the final price is entered at
+  // the point of sale in POS.
+  salePrice: string | null;
   status: UnitStatus;
   notes: string | null;
   createdAt: string;

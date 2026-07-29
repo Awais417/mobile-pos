@@ -7,6 +7,9 @@ import { Prisma, PaymentMethod, UnitStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantScopedService } from '../common/tenant/tenant-scoped.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { CreatePaymentDto } from './dto/create-payment.dto';
+import { CreateReturnDto } from './dto/create-return.dto';
+import { VoidSaleDto } from './dto/void-sale.dto';
 
 @Injectable()
 export class SalesService extends TenantScopedService {
@@ -21,6 +24,15 @@ export class SalesService extends TenantScopedService {
     role?: string,
   ) {
     this.assertTenant(businessId);
+
+    if (dto.clientId) {
+      const client = await this.prisma.client.findFirst({
+        where: { id: dto.clientId, businessId },
+      });
+      if (!client) {
+        throw new NotFoundException('Selected client not found.');
+      }
+    }
 
     const createdSale = await this.prisma.$transaction(async (tx) => {
       let subtotalAmount = new Prisma.Decimal(0);
@@ -70,6 +82,11 @@ export class SalesService extends TenantScopedService {
             );
           }
 
+          if (item.price === undefined && unit.salePrice === null) {
+            throw new BadRequestException(
+              `A selling price is required for "${product.name}" (IMEI: ${unit.imei1}) — enter a price before completing this sale.`,
+            );
+          }
           const finalPrice = item.price ?? Number(unit.salePrice);
           const lineTotal = new Prisma.Decimal(finalPrice);
           subtotalAmount = subtotalAmount.add(lineTotal);
@@ -94,9 +111,14 @@ export class SalesService extends TenantScopedService {
             );
           }
 
+          if (!item.price && product.salePrice === null) {
+            throw new BadRequestException(
+              `A selling price is required for "${product.name}" — enter a price before completing this sale.`,
+            );
+          }
           const unitPrice = item.price
             ? new Prisma.Decimal(item.price)
-            : product.salePrice;
+            : new Prisma.Decimal(product.salePrice ?? 0);
           const lineTotal = unitPrice.mul(item.quantity);
           subtotalAmount = subtotalAmount.add(lineTotal);
 
@@ -130,15 +152,34 @@ export class SalesService extends TenantScopedService {
           : subtotalAmount;
       const discountAmount = subtotalAmount.sub(totalAmount);
 
+      // Walk-in sales (no clientId) keep the pre-existing rule: full payment
+      // is required upfront. A client sale may instead be paid partially —
+      // amountPaid defaults to the full total when not given, so behavior is
+      // identical unless the caller explicitly asks for a partial payment.
+      const amountPaid = dto.clientId
+        ? (dto.amountPaid ?? Number(totalAmount))
+        : Number(totalAmount);
+
+      if (amountPaid > Number(totalAmount)) {
+        throw new BadRequestException(
+          'Amount paid cannot exceed the sale total.',
+        );
+      }
+
       if (dto.paymentMethod === PaymentMethod.CASH) {
         if (dto.cashReceived === undefined) {
           throw new BadRequestException(
             'cashReceived is required for cash payments.',
           );
         }
-        if (dto.cashReceived < Number(totalAmount)) {
+        if (!dto.clientId && dto.cashReceived < Number(totalAmount)) {
           throw new BadRequestException(
             'The full payment must be received before completing the sale.',
+          );
+        }
+        if (dto.clientId && dto.cashReceived < amountPaid) {
+          throw new BadRequestException(
+            'Cash received must cover the amount being paid now.',
           );
         }
       }
@@ -154,6 +195,7 @@ export class SalesService extends TenantScopedService {
         data: {
           businessId,
           cashierId,
+          clientId: dto.clientId ?? null,
           totalAmount,
           subtotalAmount,
           discountAmount,
@@ -168,13 +210,34 @@ export class SalesService extends TenantScopedService {
             create: saleItemsData,
           },
         },
-        include: { items: true },
+        include: { items: true, client: true },
       });
 
       for (const unitId of unitsToMarkSold) {
         await tx.productUnit.update({
           where: { id: unitId },
           data: { status: UnitStatus.SOLD },
+        });
+      }
+
+      // Only client-attached sales track a Payment ledger — walk-in sales
+      // stay exactly as they were (fully paid at creation, no Payment rows).
+      // The initial payment is always recorded as its own transaction, even
+      // when it's Rs 0 (a fully unpaid credit sale), so payment history has
+      // a first "Initial Payment" entry to build on.
+      if (dto.clientId) {
+        await tx.payment.create({
+          data: {
+            businessId,
+            saleId: sale.id,
+            clientId: dto.clientId,
+            amount: new Prisma.Decimal(amountPaid),
+            method: dto.paymentMethod,
+            provider: dto.provider ?? null,
+            bankName: dto.bankName ?? null,
+            receivedBy: cashierId,
+            isInitialPayment: true,
+          },
         });
       }
 
@@ -258,6 +321,287 @@ export class SalesService extends TenantScopedService {
     ]);
 
     return { success: true };
+  }
+
+  // "Pay Remaining" — records one more amount received against a client
+  // sale. Never edits totalAmount/subtotalAmount/discountAmount; the
+  // remaining balance is always (re)derived by summing every Payment row.
+  async addPayment(
+    businessId: string,
+    saleId: string,
+    receivedBy: string,
+    dto: CreatePaymentDto,
+  ) {
+    this.assertTenant(businessId);
+
+    const sale = await this.prisma.sale.findFirst({
+      where: { id: saleId, businessId, deletedAt: null },
+      include: { payments: true, returns: true },
+    });
+
+    if (!sale) {
+      throw new NotFoundException('Sale not found.');
+    }
+
+    if (!sale.clientId) {
+      throw new BadRequestException(
+        'This sale has no client attached — payments can only be recorded against a client sale.',
+      );
+    }
+
+    if (sale.voidedAt) {
+      throw new BadRequestException(
+        'This sale has been voided — payments can no longer be recorded against it.',
+      );
+    }
+
+    const alreadyPaid = sale.payments.reduce(
+      (sum, p) => sum + Number(p.amount),
+      0,
+    );
+    // Net of any returns — the true amount this invoice can still collect.
+    const returnedAmount = sale.returns.reduce(
+      (sum, r) => sum + Number(r.totalAmount),
+      0,
+    );
+    const netAmount = Number(sale.totalAmount) - returnedAmount;
+    const remaining = netAmount - alreadyPaid;
+
+    if (remaining <= 0) {
+      throw new BadRequestException('This sale is already fully paid.');
+    }
+
+    if (dto.amount > remaining) {
+      throw new BadRequestException(
+        `Payment cannot exceed the remaining balance of ${remaining.toFixed(2)}.`,
+      );
+    }
+
+    // A payment can't predate the invoice it's paying off — also keeps the
+    // initial-payment-is-always-first invariant intact for payment history's
+    // running previous/new balance calculation.
+    if (dto.paidAt && new Date(dto.paidAt) < sale.createdAt) {
+      throw new BadRequestException(
+        'Payment date cannot be before this invoice was created.',
+      );
+    }
+
+    // Guards against an accidental duplicate submit (double-click, a
+    // retried request) — an identical amount+method recorded for this same
+    // sale moments ago is almost certainly the same payment, not a second
+    // genuine one.
+    const tenSecondsAgo = new Date(Date.now() - 10_000);
+    const possibleDuplicate = await this.prisma.payment.findFirst({
+      where: {
+        saleId,
+        amount: new Prisma.Decimal(dto.amount),
+        method: dto.method,
+        createdAt: { gte: tenSecondsAgo },
+      },
+    });
+    if (possibleDuplicate) {
+      throw new BadRequestException(
+        'This payment looks like a duplicate of one just recorded. Refresh and check payment history before trying again.',
+      );
+    }
+
+    await this.prisma.payment.create({
+      data: {
+        businessId,
+        saleId,
+        clientId: sale.clientId,
+        amount: new Prisma.Decimal(dto.amount),
+        method: dto.method,
+        provider: dto.provider ?? null,
+        bankName: dto.bankName ?? null,
+        note: dto.note ?? null,
+        receivedBy,
+        paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date(),
+      },
+    });
+
+    const newRemaining = remaining - dto.amount;
+
+    return {
+      saleId,
+      amountPaid: alreadyPaid + dto.amount,
+      remainingBalance: newRemaining,
+      status: newRemaining <= 0 ? 'PAID' : 'PARTIAL',
+    };
+  }
+
+  // Returns one or more line items from a sale back to inventory — always
+  // linked to the original Sale (never a standalone "take back" record).
+  // Works for any sale (walk-in or client); a client's balance is simply
+  // whatever's left of the (now smaller) net sale total once one exists.
+  async returnItems(
+    businessId: string,
+    saleId: string,
+    performedBy: string,
+    dto: CreateReturnDto,
+  ) {
+    this.assertTenant(businessId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.findFirst({
+        where: { id: saleId, businessId },
+        include: { items: true },
+      });
+      if (!sale) {
+        throw new NotFoundException('Sale not found.');
+      }
+      if (sale.voidedAt) {
+        throw new BadRequestException(
+          'This sale has been voided and cannot be returned against.',
+        );
+      }
+
+      let totalAmount = new Prisma.Decimal(0);
+      const returnItemsData: {
+        saleItemId: string;
+        quantity: number;
+        amount: Prisma.Decimal;
+      }[] = [];
+
+      for (const line of dto.items) {
+        const item = sale.items.find((i) => i.id === line.saleItemId);
+        if (!item) {
+          throw new NotFoundException(
+            `Sale item not found: ${line.saleItemId}`,
+          );
+        }
+
+        // Never restore more than was actually sold and not yet returned —
+        // this is what makes a repeated/duplicate return request safe.
+        const returnable = item.quantity - item.returnedQuantity;
+        if (line.quantity > returnable) {
+          throw new BadRequestException(
+            `Cannot return ${line.quantity} of "${item.productName}" — only ${returnable} available to return.`,
+          );
+        }
+
+        const amount = item.unitPrice.mul(line.quantity);
+        totalAmount = totalAmount.add(amount);
+        returnItemsData.push({
+          saleItemId: item.id,
+          quantity: line.quantity,
+          amount,
+        });
+
+        if (item.productUnitId) {
+          // Serialized — quantity is always 1, restore the exact IMEI unit.
+          await tx.productUnit.update({
+            where: { id: item.productUnitId },
+            data: { status: UnitStatus.IN_STOCK },
+          });
+        } else {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stockQty: { increment: line.quantity } },
+          });
+        }
+
+        await tx.saleItem.update({
+          where: { id: item.id },
+          data: { returnedQuantity: { increment: line.quantity } },
+        });
+      }
+
+      const saleReturn = await tx.saleReturn.create({
+        data: {
+          businessId,
+          saleId,
+          reason: dto.reason ?? null,
+          performedBy,
+          totalAmount,
+          items: { create: returnItemsData },
+        },
+        include: { items: true },
+      });
+
+      await tx.saleAuditLog.create({
+        data: {
+          businessId,
+          saleId,
+          action: 'RETURN',
+          reason: dto.reason ?? null,
+          performedBy,
+        },
+      });
+
+      return saleReturn;
+    });
+  }
+
+  // Cancels a credit sale entirely — unlike Archive (a visibility-only hide,
+  // see archive() above), Void actually reverses inventory and is excluded
+  // from client balances. The Sale row itself is never deleted; voidedAt
+  // marks it and it stays visible (as VOIDED) in every history view.
+  async voidSale(
+    businessId: string,
+    saleId: string,
+    performedBy: string,
+    dto: VoidSaleDto,
+  ) {
+    this.assertTenant(businessId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.findFirst({
+        where: { id: saleId, businessId },
+        include: { items: true },
+      });
+      if (!sale) {
+        throw new NotFoundException('Sale not found.');
+      }
+      if (sale.voidedAt) {
+        throw new BadRequestException('This sale has already been voided.');
+      }
+
+      for (const item of sale.items) {
+        // Only restore whatever hasn't already been returned — a partially
+        // returned sale that's then voided only gives back the remainder,
+        // so nothing is ever restored to stock twice.
+        const remaining = item.quantity - item.returnedQuantity;
+        if (remaining > 0) {
+          if (item.productUnitId) {
+            await tx.productUnit.update({
+              where: { id: item.productUnitId },
+              data: { status: UnitStatus.IN_STOCK },
+            });
+          } else {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { stockQty: { increment: remaining } },
+            });
+          }
+          await tx.saleItem.update({
+            where: { id: item.id },
+            data: { returnedQuantity: item.quantity },
+          });
+        }
+      }
+
+      const voided = await tx.sale.update({
+        where: { id: saleId },
+        data: {
+          voidedAt: new Date(),
+          voidedBy: performedBy,
+          voidReason: dto.reason ?? null,
+        },
+      });
+
+      await tx.saleAuditLog.create({
+        data: {
+          businessId,
+          saleId,
+          action: 'VOID',
+          reason: dto.reason ?? null,
+          performedBy,
+        },
+      });
+
+      return voided;
+    });
   }
 
   async getSummary(businessId: string) {
@@ -353,9 +697,11 @@ export class SalesService extends TenantScopedService {
     prevRangeStart.setDate(prevRangeStart.getDate() - days);
 
     // Archived sales stay in these figures — see getSummary() above for why.
+    // Voided sales are excluded here (unlike Archive, a Void is not a
+    // financially valid sale — its inventory has already been reversed).
     const rangeSales = await this.prisma.sale.findMany({
-      where: { businessId, createdAt: { gte: rangeStart } },
-      include: { items: true },
+      where: { businessId, createdAt: { gte: rangeStart }, voidedAt: null },
+      include: { items: true, returns: true },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -363,6 +709,7 @@ export class SalesService extends TenantScopedService {
       where: {
         businessId,
         createdAt: { gte: prevRangeStart, lt: prevRangeEnd },
+        voidedAt: null,
       },
     });
 
@@ -418,7 +765,13 @@ export class SalesService extends TenantScopedService {
     const cashierStats: Map<string, CashierStat> = new Map();
 
     for (const sale of rangeSales) {
-      const saleTotal = Number(sale.totalAmount);
+      // A partial return only gives back the returned item(s) — Revenue
+      // must drop by exactly that returned amount, never the whole sale.
+      const saleReturnedRevenue = sale.returns.reduce(
+        (sum, r) => sum + Number(r.totalAmount),
+        0,
+      );
+      const saleTotal = Number(sale.totalAmount) - saleReturnedRevenue;
       const saleDate = new Date(sale.createdAt);
       const dateKey = saleDate.toISOString().slice(0, 10);
       const hour = saleDate.getHours();
@@ -449,10 +802,13 @@ export class SalesService extends TenantScopedService {
       cashierStats.set(sale.cashierId, cashierEntry);
 
       for (const item of sale.items) {
-        // costPrice sale ke waqt snapshot ki gayi hai — live Product state
-        // (archived/deleted/edited) profit ko kabhi affect nahi karti
-        const itemCost = Number(item.costPrice) * item.quantity;
-        const itemProfit = Number(item.lineTotal) - itemCost;
+        // Only the not-yet-returned portion of this line still counts —
+        // costPrice/unitPrice themselves are the sale-time snapshot (live
+        // Product state never affects a past sale's profit).
+        const effectiveQty = item.quantity - item.returnedQuantity;
+        const itemRevenue = Number(item.unitPrice) * effectiveQty;
+        const itemCost = Number(item.costPrice) * effectiveQty;
+        const itemProfit = itemRevenue - itemCost;
         trendEntry.profit += itemProfit;
         periodCost += itemCost;
         periodProfit += itemProfit;
@@ -463,15 +819,15 @@ export class SalesService extends TenantScopedService {
           revenue: 0,
           profit: 0,
         };
-        pStat.unitsSold += item.quantity;
-        pStat.revenue += Number(item.lineTotal);
+        pStat.unitsSold += effectiveQty;
+        pStat.revenue += itemRevenue;
         pStat.profit += itemProfit;
         productStats.set(item.productId, pStat);
 
         const catId = categoryOf.get(item.productId) ?? 'uncategorized';
         categoryRevenue.set(
           catId,
-          (categoryRevenue.get(catId) ?? 0) + Number(item.lineTotal),
+          (categoryRevenue.get(catId) ?? 0) + itemRevenue,
         );
       }
 
@@ -530,6 +886,42 @@ export class SalesService extends TenantScopedService {
         reorderLevel: p.reorderLevel,
       }));
 
+    // --- Cash Collection — kept entirely separate from Sales Performance
+    // above. An installment sale's full price counts toward periodRevenue
+    // the moment it's made; only the portion actually received counts here.
+    // Amount Collected = every Payment (initial or later) received during
+    // this period, regardless of which invoice it's against, plus walk-in
+    // sales made in this period (they carry no Payment rows — they're fully
+    // collected at creation instead, net of any return/void).
+    const periodPayments = await this.prisma.payment.findMany({
+      where: { businessId, paidAt: { gte: rangeStart } },
+    });
+    const collectedFromPayments = periodPayments.reduce(
+      (sum, p) => sum + Number(p.amount),
+      0,
+    );
+    const collectedFromWalkIns = rangeSales
+      .filter((s) => !s.clientId)
+      .reduce((sum, s) => {
+        if (s.voidedAt) return sum;
+        const returned = s.returns.reduce(
+          (rSum, r) => rSum + Number(r.totalAmount),
+          0,
+        );
+        return sum + (Number(s.totalAmount) - returned);
+      }, 0);
+    const periodCollected = collectedFromPayments + collectedFromWalkIns;
+
+    const periodExpenseAgg = await this.prisma.expense.aggregate({
+      where: { businessId, date: { gte: rangeStart } },
+      _sum: { amount: true },
+    });
+    const periodExpenses = Number(periodExpenseAgg._sum.amount ?? 0);
+    // Net Cash — true cash-basis net (Collected - Expenses), distinct from
+    // the existing accrual-basis "Net Sales" (Revenue - Expenses) shown
+    // elsewhere on the Dashboard.
+    const periodNetCash = periodCollected - periodExpenses;
+
     return {
       kpis: {
         periodRevenue: periodRevenue.toFixed(2),
@@ -544,6 +936,9 @@ export class SalesService extends TenantScopedService {
         inventoryValue: inventoryValue.toFixed(2),
         lowStockCount: lowStockProducts.length,
         revenueChangePct: revenueChangePct.toFixed(1),
+        periodCollected: periodCollected.toFixed(2),
+        periodExpenses: periodExpenses.toFixed(2),
+        periodNetCash: periodNetCash.toFixed(2),
       },
       revenueTrend: Array.from(trendMap.entries())
         .sort(([a], [b]) => (a > b ? 1 : -1))

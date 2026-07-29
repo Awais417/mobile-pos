@@ -358,7 +358,7 @@ export default function InventoryPage() {
                       </td>
                     )}
                     <td className="whitespace-nowrap py-4 pr-8">
-                      <PriceDisplay value={u.salePrice} size="md" />
+                      {u.salePrice != null ? <PriceDisplay value={u.salePrice} size="md" /> : '—'}
                     </td>
                     <td className="whitespace-nowrap py-4 pr-8">
                       <StatusBadge tone={unitStatusTone(u.status)}>{unitStatusLabel(u.status)}</StatusBadge>
@@ -423,7 +423,10 @@ export default function InventoryPage() {
                 value={viewUnit.costPrice != null ? formatCurrency(viewUnit.costPrice) : '—'}
               />
             )}
-            <DetailItem label="Selling Price" value={formatCurrency(viewUnit.salePrice)} />
+            <DetailItem
+              label="Selling Price"
+              value={viewUnit.salePrice != null ? formatCurrency(viewUnit.salePrice) : '—'}
+            />
             <DetailItem label="Stock Status" value={unitStatusLabel(viewUnit.status)} />
           </DetailSection>
           <DetailSection title="Other">

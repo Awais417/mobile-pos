@@ -13,6 +13,7 @@ import {
   BoxesIcon,
   ReceiptIcon,
   UsersIcon,
+  UserIcon,
   LogOutIcon,
   StoreIcon,
   XIcon,
@@ -34,10 +35,11 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// Grouped by real modules only — no Customers/Suppliers/Reports/Settings/
-// Returns/Users, since none of those exist in this application yet.
-// Salesman ke liye sirf POS Terminal — baaki sab adminOnly. Ye sirf UI hai;
-// asal enforcement RoleGate (route-level) aur backend @Roles() guards karte hain.
+// Grouped by real modules only — no Suppliers/Reports/Settings/Returns/Users,
+// since none of those exist in this application yet.
+// Salesman ke liye sirf POS Terminal aur Clients — baaki sab adminOnly. Ye
+// sirf UI hai; asal enforcement RoleGate (route-level) aur backend @Roles()
+// guards karte hain.
 const navGroups: NavGroup[] = [
   {
     label: 'Overview',
@@ -48,6 +50,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: '/terminal', label: 'POS Terminal', icon: ShoppingCartIcon, adminOnly: false },
       { href: '/sales', label: 'Sales History', icon: ReceiptIcon, adminOnly: true },
+      { href: '/clients', label: 'Clients', icon: UserIcon, adminOnly: false },
     ],
   },
   {

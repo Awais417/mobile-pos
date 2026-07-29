@@ -13,9 +13,10 @@ import {
 import { ApiProperty } from '@nestjs/swagger';
 import { PtaStatus, DeviceCondition } from '@prisma/client';
 
-// Mandatory: productId, IMEI, deviceCondition, costPrice, salePrice. Serial
-// Number is a separate, always-optional supplementary identifier — it never
-// substitutes for IMEI. Everything else (RAM, storage, color, battery
+// Mandatory: productId, IMEI, deviceCondition, costPrice. Serial Number is a
+// separate, always-optional supplementary identifier — it never substitutes
+// for IMEI. Selling Price is optional here too — it can instead be entered
+// at the point of sale in POS. Everything else (RAM, storage, color, battery
 // health, PTA status, ...) is genuinely optional — never forced.
 export class CreateProductUnitDto {
   @ApiProperty()
@@ -113,10 +114,13 @@ export class CreateProductUnitDto {
   @Min(0)
   costPrice!: number;
 
-  @ApiProperty()
+  // Optional — Cost Price alone is enough; the final Selling Price can
+  // instead be entered at the point of sale in POS.
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  salePrice!: number;
+  salePrice?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()

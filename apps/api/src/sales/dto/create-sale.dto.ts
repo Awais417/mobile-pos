@@ -83,4 +83,21 @@ export class CreateSaleDto {
   @IsInt()
   @Min(0)
   finalTotal?: number;
+
+  // Attaches this sale to a Client record — omit for a walk-in sale (existing
+  // behavior, unchanged). Only when set does the partial-payment path below
+  // apply; a clientId-less sale still requires full payment as before.
+  @ApiProperty({ required: false, example: 'client-id-here' })
+  @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  // Amount actually being paid right now — only meaningful when clientId is
+  // set. Defaults to the full total when omitted. Must not exceed the total
+  // (no advance payments). Ignored for walk-in sales.
+  @ApiProperty({ required: false, example: 20000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  amountPaid?: number;
 }

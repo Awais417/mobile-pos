@@ -18,6 +18,9 @@ import { AuthenticatedUser } from '../common/types/auth.types';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { ArchiveSaleDto } from './dto/archive-sale.dto';
+import { CreatePaymentDto } from './dto/create-payment.dto';
+import { CreateReturnDto } from './dto/create-return.dto';
+import { VoidSaleDto } from './dto/void-sale.dto';
 
 @ApiTags('sales')
 @ApiBearerAuth('access-token')
@@ -66,5 +69,44 @@ export class SalesController {
     @Body() dto: ArchiveSaleDto,
   ) {
     return this.salesService.archive(businessId, id, user.userId, dto.reason);
+  }
+
+  // "Pay Remaining" — Admin and Salesman can both record a payment against
+  // a client sale.
+  @Post(':id/payments')
+  @Roles('ADMIN', 'SALESMAN')
+  addPayment(
+    @TenantId() businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CreatePaymentDto,
+  ) {
+    return this.salesService.addPayment(businessId, id, user.userId, dto);
+  }
+
+  // Returns one or more line items back to inventory — restores the exact
+  // IMEI unit(s) or stock quantity, and prevents restoring the same item twice.
+  @Post(':id/return')
+  @Roles('ADMIN')
+  returnItems(
+    @TenantId() businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CreateReturnDto,
+  ) {
+    return this.salesService.returnItems(businessId, id, user.userId, dto);
+  }
+
+  // Cancels a credit sale entirely — reverses inventory and is excluded from
+  // client balances, but the record itself is preserved (never deleted).
+  @Post(':id/void')
+  @Roles('ADMIN')
+  voidSale(
+    @TenantId() businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: VoidSaleDto,
+  ) {
+    return this.salesService.voidSale(businessId, id, user.userId, dto);
   }
 }
