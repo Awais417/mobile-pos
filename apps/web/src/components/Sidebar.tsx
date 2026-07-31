@@ -19,6 +19,8 @@ import {
   XIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  LandmarkIcon,
+  WalletIcon,
 } from '@/components/icons';
 import type { ComponentType } from 'react';
 import type { IconProps } from '@/components/icons';
@@ -28,6 +30,10 @@ interface NavItem {
   label: string;
   icon: ComponentType<IconProps>;
   adminOnly: boolean;
+  // Vendor module only — when set, overrides adminOnly and shows this item
+  // only to the listed roles. Omitted (undefined) for every pre-existing
+  // item, which keeps their original adminOnly-only behavior unchanged.
+  roles?: string[];
 }
 
 interface NavGroup {
@@ -62,6 +68,44 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: 'Purchases',
+    items: [
+      {
+        href: '/vendors',
+        label: 'Vendors',
+        icon: LandmarkIcon,
+        adminOnly: true,
+        roles: ['ADMIN', 'ACCOUNTANT', 'BRANCH_MANAGER'],
+      },
+      {
+        href: '/purchases',
+        label: 'Purchase Bills',
+        icon: PackageIcon,
+        adminOnly: true,
+        roles: ['ADMIN', 'ACCOUNTANT', 'BRANCH_MANAGER'],
+      },
+      {
+        href: '/vendor-payments',
+        label: 'Vendor Payments',
+        icon: WalletIcon,
+        adminOnly: true,
+        roles: ['ADMIN', 'ACCOUNTANT'],
+      },
+    ],
+  },
+  {
+    label: 'Finance',
+    items: [
+      {
+        href: '/payables',
+        label: 'Payables',
+        icon: LandmarkIcon,
+        adminOnly: true,
+        roles: ['ADMIN', 'ACCOUNTANT'],
+      },
+    ],
+  },
+  {
     label: 'System',
     items: [{ href: '/staff', label: 'Staff', icon: UsersIcon, adminOnly: true }],
   },
@@ -70,6 +114,8 @@ const navGroups: NavGroup[] = [
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Administrator',
   SALESMAN: 'Salesman',
+  ACCOUNTANT: 'Accountant',
+  BRANCH_MANAGER: 'Branch Manager',
 };
 
 interface SidebarProps {
@@ -107,7 +153,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   }
 
   const groups = navGroups
-    .map((g) => ({ ...g, items: g.items.filter((i) => !i.adminOnly || user?.role === 'ADMIN') }))
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((i) =>
+        i.roles ? !!user && i.roles.includes(user.role) : !i.adminOnly || user?.role === 'ADMIN',
+      ),
+    }))
     .filter((g) => g.items.length > 0);
 
   return (

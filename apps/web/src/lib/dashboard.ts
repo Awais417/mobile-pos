@@ -19,6 +19,9 @@ export interface DashboardKpis {
   periodCollected: string;
   periodExpenses: string;
   periodNetCash: string;
+  // Vendor module — Collected Sales minus only the vendor payments marked
+  // "Deduct from Available Sales Cash". Never changes Total Sales/Profit.
+  availableSalesCash: string;
 }
 
 export interface RevenueTrendPoint {

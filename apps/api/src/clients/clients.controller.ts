@@ -19,6 +19,7 @@ import { AuthenticatedUser } from '../common/types/auth.types';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { HideClientHistoryDto } from './dto/hide-client-history.dto';
 
 // Admin can view all clients; Salesman can list/search/add/view them too —
 // only editing an existing client's basic info is Admin-only (see the
@@ -86,5 +87,41 @@ export class ClientsController {
     @Param('id') id: string,
   ) {
     return this.clientsService.archive(businessId, id, user.userId);
+  }
+
+  // Hides one Sale/Payment/Return row from this client's History tabs only
+  // — the underlying record (and every total derived from it) is untouched.
+  // Admin only, and a reason is always required.
+  @Delete(':id/history/:entryType/:entryId')
+  @Roles('ADMIN')
+  hideHistoryEntry(
+    @TenantId() businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('entryType') entryType: string,
+    @Param('entryId') entryId: string,
+    @Body() dto: HideClientHistoryDto,
+  ) {
+    return this.clientsService.hideHistoryEntry(
+      businessId,
+      id,
+      entryType.toUpperCase(),
+      entryId,
+      dto.reason,
+      user.userId,
+    );
+  }
+
+  // "Clear Client History" — hides every currently-visible Sale/Payment/
+  // Return row for this client in one action. Same safe hide, just in bulk.
+  @Delete(':id/history')
+  @Roles('ADMIN')
+  clearHistory(
+    @TenantId() businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: HideClientHistoryDto,
+  ) {
+    return this.clientsService.clearHistory(businessId, id, dto.reason, user.userId);
   }
 }

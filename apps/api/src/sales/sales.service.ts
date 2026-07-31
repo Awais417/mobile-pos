@@ -10,6 +10,7 @@ import { CreateSaleDto } from './dto/create-sale.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { VoidSaleDto } from './dto/void-sale.dto';
+import { CompleteRefundDto } from './dto/complete-refund.dto';
 
 @Injectable()
 export class SalesService extends TenantScopedService {
@@ -432,8 +433,15 @@ export class SalesService extends TenantScopedService {
 
   // Returns one or more line items from a sale back to inventory — always
   // linked to the original Sale (never a standalone "take back" record).
-  // Works for any sale (walk-in or client); a client's balance is simply
-  // whatever's left of the (now smaller) net sale total once one exists.
+  // Works for any sale (walk-in or client). For a client-attached sale, this
+  // also recalculates the net sale total and customer due/refund due
+  // (Decimal-safe, server-authoritative — see computeReturnSettlement) and,
+  // when the return leaves a refund owed to the customer, requires and
+  // applies the Refund Now / Refund Later settlement chosen in dto —
+  // everything happens in this one transaction. A walk-in sale (no client)
+  // is always fully collected at checkout with no Payment ledger, so no
+  // settlement is computed for it — any walk-in refund is handled at the
+  // counter, outside this system.
   async returnItems(
     businessId: string,
     saleId: string,
@@ -445,7 +453,7 @@ export class SalesService extends TenantScopedService {
     return this.prisma.$transaction(async (tx) => {
       const sale = await tx.sale.findFirst({
         where: { id: saleId, businessId },
-        include: { items: true },
+        include: { items: true, payments: true, returns: true },
       });
       if (!sale) {
         throw new NotFoundException('Sale not found.');
@@ -456,7 +464,7 @@ export class SalesService extends TenantScopedService {
         );
       }
 
-      let totalAmount = new Prisma.Decimal(0);
+      let returnTotal = new Prisma.Decimal(0);
       const returnItemsData: {
         saleItemId: string;
         quantity: number;
@@ -481,7 +489,7 @@ export class SalesService extends TenantScopedService {
         }
 
         const amount = item.unitPrice.mul(line.quantity);
-        totalAmount = totalAmount.add(amount);
+        returnTotal = returnTotal.add(amount);
         returnItemsData.push({
           saleItemId: item.id,
           quantity: line.quantity,
@@ -513,11 +521,163 @@ export class SalesService extends TenantScopedService {
           saleId,
           reason: dto.reason ?? null,
           performedBy,
-          totalAmount,
+          totalAmount: returnTotal,
           items: { create: returnItemsData },
         },
         include: { items: true },
       });
+
+      // Net Sale Total = Original Sale Total − Valid Return Credit (every
+      // return to date, including this one).
+      const priorReturnedTotal = sale.returns.reduce(
+        (sum, r) => sum.add(r.totalAmount),
+        new Prisma.Decimal(0),
+      );
+      const netSaleTotal = sale.totalAmount.sub(
+        priorReturnedTotal.add(returnTotal),
+      );
+
+      let settlement: {
+        netSaleTotal: string;
+        customerDue: string;
+        refundDue: string;
+        refund: { id: string; status: string; amount: string } | null;
+      } | null = null;
+
+      if (sale.clientId) {
+        // Net Customer Payment = Total Customer Payments − Completed Cash
+        // Refunds. Refunds already completed before this return are stored
+        // as negative Payment rows (see Payment.isRefund), so summing every
+        // existing Payment row already gives exactly this net figure.
+        const netPaymentBefore = sale.payments.reduce(
+          (sum, p) => sum.add(p.amount),
+          new Prisma.Decimal(0),
+        );
+
+        const rawDue = netSaleTotal.sub(netPaymentBefore);
+        // Refund/Credit Due = max(Net Customer Payment − Net Sale Total, 0)
+        const refundDueBeforeSettlement = rawDue.isNegative()
+          ? rawDue.neg()
+          : new Prisma.Decimal(0);
+
+        let refundRecord: {
+          id: string;
+          status: string;
+          amount: Prisma.Decimal;
+        } | null = null;
+
+        if (refundDueBeforeSettlement.gt(0)) {
+          if (!dto.refundSettlement) {
+            throw new BadRequestException(
+              `This return results in a refund due to the customer of ${refundDueBeforeSettlement.toFixed(2)} — choose Refund Now or Refund Later.`,
+            );
+          }
+          // The server-computed refund due is always the source of truth —
+          // the client's amount is only sanity-checked against it (guards
+          // against a stale UI, e.g. someone else changed the sale
+          // concurrently), never trusted for the actual amount recorded.
+          const requested = new Prisma.Decimal(dto.refundSettlement.amount);
+          if (requested.sub(refundDueBeforeSettlement).abs().gt(0.01)) {
+            throw new BadRequestException(
+              `Refund amount must equal the refund due of ${refundDueBeforeSettlement.toFixed(2)}.`,
+            );
+          }
+
+          if (dto.refundSettlement.mode === 'REFUND_NOW') {
+            if (!dto.refundSettlement.method) {
+              throw new BadRequestException('Select a refund method.');
+            }
+            const refundPayment = await tx.payment.create({
+              data: {
+                businessId,
+                saleId,
+                clientId: sale.clientId,
+                amount: refundDueBeforeSettlement.neg(),
+                method: dto.refundSettlement.method,
+                provider: dto.refundSettlement.provider ?? null,
+                bankName: dto.refundSettlement.bankName ?? null,
+                note: dto.refundSettlement.note ?? null,
+                receivedBy: performedBy,
+                isRefund: true,
+                paidAt: new Date(),
+              },
+            });
+            const customerRefund = await tx.customerRefund.create({
+              data: {
+                businessId,
+                saleId,
+                clientId: sale.clientId,
+                saleReturnId: saleReturn.id,
+                amount: refundDueBeforeSettlement,
+                status: 'COMPLETED',
+                method: dto.refundSettlement.method,
+                referenceNumber: dto.refundSettlement.referenceNumber ?? null,
+                note: dto.refundSettlement.note ?? null,
+                createdBy: performedBy,
+                completedAt: new Date(),
+                completedBy: performedBy,
+                paymentId: refundPayment.id,
+              },
+            });
+            refundRecord = {
+              id: customerRefund.id,
+              status: customerRefund.status,
+              amount: customerRefund.amount,
+            };
+          } else {
+            const customerRefund = await tx.customerRefund.create({
+              data: {
+                businessId,
+                saleId,
+                clientId: sale.clientId,
+                saleReturnId: saleReturn.id,
+                amount: refundDueBeforeSettlement,
+                status: 'PENDING',
+                referenceNumber: dto.refundSettlement.referenceNumber ?? null,
+                note: dto.refundSettlement.note ?? null,
+                createdBy: performedBy,
+              },
+            });
+            refundRecord = {
+              id: customerRefund.id,
+              status: customerRefund.status,
+              amount: customerRefund.amount,
+            };
+          }
+        }
+
+        // Final numbers after settlement — a completed Refund Now zeroes
+        // both customerDue and refundDue; a Refund Later still reports the
+        // full refundDue (nothing has actually been paid out yet, so
+        // nothing here has changed) until it's later completed.
+        const netPaymentAfter =
+          refundRecord?.status === 'COMPLETED'
+            ? netPaymentBefore.sub(refundDueBeforeSettlement)
+            : netPaymentBefore;
+        const finalRawDue = netSaleTotal.sub(netPaymentAfter);
+        const finalCustomerDue = finalRawDue.gt(0)
+          ? finalRawDue
+          : new Prisma.Decimal(0);
+        const finalRefundDue =
+          refundRecord?.status === 'PENDING'
+            ? refundDueBeforeSettlement
+            : finalRawDue.isNegative()
+              ? finalRawDue.neg()
+              : new Prisma.Decimal(0);
+
+        settlement = {
+          netSaleTotal: netSaleTotal.toFixed(2),
+          customerDue: finalCustomerDue.toFixed(2),
+          refundDue: finalRefundDue.toFixed(2),
+          refund: refundRecord
+            ? {
+                id: refundRecord.id,
+                status: refundRecord.status,
+                amount: refundRecord.amount.toFixed(2),
+              }
+            : null,
+        };
+      }
 
       await tx.saleAuditLog.create({
         data: {
@@ -529,7 +689,62 @@ export class SalesService extends TenantScopedService {
         },
       });
 
-      return saleReturn;
+      return { ...saleReturn, settlement };
+    });
+  }
+
+  // Settles a pending "Refund Later" — pays out the amount already recorded
+  // as owed to the customer, creating the negative refund Payment (see
+  // Payment.isRefund) and marking the CustomerRefund COMPLETED. Never edits
+  // the original sale/payment/return records.
+  async completeRefund(
+    businessId: string,
+    refundId: string,
+    performedBy: string,
+    dto: CompleteRefundDto,
+  ) {
+    this.assertTenant(businessId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const refund = await tx.customerRefund.findFirst({
+        where: { id: refundId, businessId },
+      });
+      if (!refund) {
+        throw new NotFoundException('Refund not found.');
+      }
+      if (refund.status === 'COMPLETED') {
+        throw new BadRequestException(
+          'This refund has already been completed.',
+        );
+      }
+
+      const refundPayment = await tx.payment.create({
+        data: {
+          businessId,
+          saleId: refund.saleId,
+          clientId: refund.clientId,
+          amount: refund.amount.neg(),
+          method: dto.method,
+          provider: dto.provider ?? null,
+          bankName: dto.bankName ?? null,
+          note: dto.note ?? refund.note,
+          receivedBy: performedBy,
+          isRefund: true,
+          paidAt: new Date(),
+        },
+      });
+
+      return tx.customerRefund.update({
+        where: { id: refundId },
+        data: {
+          status: 'COMPLETED',
+          method: dto.method,
+          referenceNumber: dto.referenceNumber ?? refund.referenceNumber,
+          completedAt: new Date(),
+          completedBy: performedBy,
+          paymentId: refundPayment.id,
+        },
+      });
     });
   }
 
@@ -922,6 +1137,27 @@ export class SalesService extends TenantScopedService {
     // elsewhere on the Dashboard.
     const periodNetCash = periodCollected - periodExpenses;
 
+    // Available Sales Cash (Vendor module) — Collected Sales minus only the
+    // vendor payments an admin explicitly marked "Deduct from Available
+    // Sales Cash". This never changes Total Sales/Revenue/Profit/COGS above
+    // — it's a separate, purely informational cash-on-hand figure. Reversed
+    // payments are excluded (same reversedAt: null filter used everywhere
+    // else a vendor payment total is computed).
+    const deductibleVendorPaymentAgg =
+      await this.prisma.vendorPayment.aggregate({
+        where: {
+          businessId,
+          paidAt: { gte: rangeStart },
+          deductFromDashboardCash: true,
+          reversedAt: null,
+        },
+        _sum: { amount: true },
+      });
+    const periodVendorCashDeductions = Number(
+      deductibleVendorPaymentAgg._sum.amount ?? 0,
+    );
+    const availableSalesCash = periodCollected - periodVendorCashDeductions;
+
     return {
       kpis: {
         periodRevenue: periodRevenue.toFixed(2),
@@ -939,6 +1175,7 @@ export class SalesService extends TenantScopedService {
         periodCollected: periodCollected.toFixed(2),
         periodExpenses: periodExpenses.toFixed(2),
         periodNetCash: periodNetCash.toFixed(2),
+        availableSalesCash: availableSalesCash.toFixed(2),
       },
       revenueTrend: Array.from(trendMap.entries())
         .sort(([a], [b]) => (a > b ? 1 : -1))

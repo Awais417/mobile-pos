@@ -17,6 +17,8 @@ import { AlertTriangleIcon, InboxIcon, Loader2Icon, PlusIcon, UsersIcon } from '
 const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Administrator',
   SALESMAN: 'Salesman',
+  ACCOUNTANT: 'Accountant',
+  BRANCH_MANAGER: 'Branch Manager',
 };
 
 function initials(name: string | null | undefined): string {
@@ -39,6 +41,7 @@ export default function StaffPage() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'SALESMAN' | 'ACCOUNTANT' | 'BRANCH_MANAGER'>('SALESMAN');
 
   async function loadStaff() {
     try {
@@ -59,6 +62,7 @@ export default function StaffPage() {
     setFullName('');
     setEmail('');
     setPassword('');
+    setRole('SALESMAN');
     setShowAddModal(true);
   }
 
@@ -70,8 +74,8 @@ export default function StaffPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await createStaff({ fullName, email, password, role: 'SALESMAN' });
-      showToast('success', 'Salesman added successfully.');
+      await createStaff({ fullName, email, password, role });
+      showToast('success', 'Staff member added successfully.');
       closeAddModal();
       await loadStaff();
     } catch {
@@ -235,6 +239,19 @@ export default function StaffPage() {
                     minLength={8}
                     className={inputClass}
                   />
+                </FormField>
+              </div>
+              <div className="sm:col-span-2">
+                <FormField label="Role">
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as typeof role)}
+                    className={inputClass}
+                  >
+                    <option value="SALESMAN">Salesman</option>
+                    <option value="ACCOUNTANT">Accountant</option>
+                    <option value="BRANCH_MANAGER">Branch Manager</option>
+                  </select>
                 </FormField>
               </div>
             </div>

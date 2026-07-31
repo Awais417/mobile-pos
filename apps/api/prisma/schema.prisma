@@ -10,6 +10,11 @@ datasource db {
 enum Role {
   ADMIN
   SALESMAN
+  // Vendor module roles (additive — ADMIN/SALESMAN behavior is unchanged).
+  // ACCOUNTANT: vendor payments, ledger and payables. BRANCH_MANAGER:
+  // purchases scoped to their own outlet only.
+  ACCOUNTANT
+  BRANCH_MANAGER
 }
 
 enum PaymentMethod {
@@ -49,18 +54,25 @@ model Business {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  outlets      Outlet[]
-  users        User[]
-  categories   Category[]
-  models       Model[]
-  products     Product[]
-  sales        Sale[]
-  productUnits ProductUnit[]
-  saleAuditLogs SaleAuditLog[]
-  expenses      Expense[]
-  clients       Client[]
-  payments      Payment[]
-  saleReturns   SaleReturn[]
+  outlets            Outlet[]
+  users              User[]
+  categories         Category[]
+  models             Model[]
+  products           Product[]
+  sales              Sale[]
+  productUnits       ProductUnit[]
+  saleAuditLogs      SaleAuditLog[]
+  expenses           Expense[]
+  clients            Client[]
+  payments           Payment[]
+  saleReturns        SaleReturn[]
+  customerRefunds    CustomerRefund[]
+  clientHistoryHides ClientHistoryHide[]
+
+  // Vendor module (additive) — vendor/purchase records are tenant-wide.
+  vendors        Vendor[]
+  purchases      Purchase[]
+  vendorPayments VendorPayment[]
 }
 
 model Outlet {
@@ -73,6 +85,11 @@ model Outlet {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   users    User[]
+
+  // Vendor module (additive) — a branch-specific purchase optionally belongs
+  // to this outlet. Nullable on Purchase, so this list is empty for
+  // businesses that never assign purchases to a specific outlet.
+  purchases Purchase[]
 
   @@index([businessId])
 }
@@ -113,17 +130,17 @@ model RefreshToken {
 }
 
 model Category {
-  id          String   @id @default(cuid())
-  businessId  String
-  name        String
-  slug        String?
-  description String?
-  isActive    Boolean  @default(true)
+  id           String   @id @default(cuid())
+  businessId   String
+  name         String
+  slug         String?
+  description  String?
+  isActive     Boolean  @default(true)
   // true = is products yahan IMEI se track hote hain (Product + ProductUnit
   // dono banti hain), false = simple accessory (Product hi kaafi hai)
-  isSerialized Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isSerialized Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   products Product[]
@@ -178,9 +195,9 @@ model Product {
   // Mobile shop ke liye — serialized inventory (IMEI-based). Category.isSerialized
   // se derive hota hai creation ke waqt; yahan bhi rakha hai taake sales/inventory
   // ki mojooda saari logic (jo isSerialized use karti hai) bina tooṛe chalti rahe.
-  isSerialized Boolean @default(false)
-  storage      String?
-  color        String?
+  isSerialized  Boolean @default(false)
+  storage       String?
+  color         String?
   compatibility String?
 
   business Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -219,12 +236,12 @@ model ProductUnit {
   batteryHealth   Int?
   ptaStatus       PtaStatus?
   deviceCondition DeviceCondition @default(BRAND_NEW)
-  isNew           Boolean    @default(false)
+  isNew           Boolean         @default(false)
   faceIdWorking   Boolean?
   screenOriginal  Boolean?
-  boxIncluded     Boolean    @default(false)
-  chargerIncluded Boolean    @default(false)
-  warrantyDays    Int        @default(0)
+  boxIncluded     Boolean         @default(false)
+  chargerIncluded Boolean         @default(false)
+  warrantyDays    Int             @default(0)
   supplier        String?
 
   costPrice Decimal    @db.Decimal(12, 2)
@@ -269,63 +286,66 @@ model Client {
   archivedAt DateTime?
   archivedBy String?
 
-  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  sales    Sale[]
-  payments Payment[]
+  business     Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sales        Sale[]
+  payments     Payment[]
+  refunds      CustomerRefund[]
+  historyHides ClientHistoryHide[]
 
   @@index([businessId])
   @@index([businessId, phone])
 }
 
 model Sale {
-  id          String    @id @default(cuid())
-  businessId  String
-  outletId    String?
-  cashierId   String
+  id                 String    @id @default(cuid())
+  businessId         String
+  outletId           String?
+  cashierId          String
   // Null = walk-in (no client attached) — the pre-existing behavior for
   // every sale before Client Management was added, and still the default.
-  clientId    String?
+  clientId           String?
   // Final payable amount — equals subtotalAmount unless the cashier edited
   // the Grand Total at checkout, in which case this is that edited value.
-  totalAmount Decimal   @db.Decimal(12, 2)
+  totalAmount        Decimal   @db.Decimal(12, 2)
   // Original sum of item line totals, preserved as-is for audit/reference
   // even when totalAmount was manually overridden.
-  subtotalAmount Decimal @db.Decimal(12, 2) @default(0)
+  subtotalAmount     Decimal   @default(0) @db.Decimal(12, 2)
   // subtotalAmount - totalAmount — positive when the edited Grand Total is a
   // discount, negative when it's a surcharge. Zero whenever the Grand Total
   // was never edited.
-  discountAmount Decimal @db.Decimal(12, 2) @default(0)
-  createdAt   DateTime  @default(now())
+  discountAmount     Decimal   @default(0) @db.Decimal(12, 2)
+  createdAt          DateTime  @default(now())
   // deletedAt != null == "archived" — hidden from Sales History only. Revenue/
   // Profit queries (getSummary/getDashboard) deliberately ignore this field,
   // since they read from the permanent financial record, not the visible list.
-  deletedAt   DateTime?
-  archivedBy    String?
-  archiveReason String?
+  deletedAt          DateTime?
+  archivedBy         String?
+  archiveReason      String?
   // voidedAt != null == this credit sale was cancelled — unlike Archive,
   // voiding DOES reverse inventory and is excluded from client balances
   // (see SalesService.voidSale). The row itself is never deleted.
-  voidedAt    DateTime?
-  voidedBy    String?
-  voidReason  String?
-  dailyInvoiceNumber Int @default(0)
+  voidedAt           DateTime?
+  voidedBy           String?
+  voidReason         String?
+  dailyInvoiceNumber Int       @default(0)
 
   // Payment details
   paymentMethod   PaymentMethod
-  cashReceived    Decimal?       @db.Decimal(12, 2)
+  cashReceived    Decimal?      @db.Decimal(12, 2)
   provider        String?
   bankName        String?
   cardLastFour    String?
   referenceNumber String?
 
-  business  Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business  Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   // Client delete kabhi Sale delete nahi karti — clientId null ho jaata hai
   // (SetNull), sale/invoice history intact rehti hai.
-  client    Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  client    Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
   items     SaleItem[]
   auditLogs SaleAuditLog[]
   payments  Payment[]
   returns   SaleReturn[]
+  refunds   CustomerRefund[]
 
   @@index([businessId])
   @@index([createdAt])
@@ -347,6 +367,7 @@ model SaleReturn {
   business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   sale     Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
   items    SaleReturnItem[]
+  refund   CustomerRefund?
 
   @@index([businessId])
   @@index([saleId])
@@ -370,33 +391,116 @@ model SaleReturnItem {
 // payment AND every later "Pay Remaining" installment. amountPaid/remaining
 // balance are always derived by summing these rows, never stored directly.
 model Payment {
-  id         String        @id @default(cuid())
-  businessId String
-  saleId     String
-  clientId   String?
-  amount     Decimal       @db.Decimal(12, 2)
-  method     PaymentMethod
-  provider   String?
-  bankName   String?
-  note       String?
-  receivedBy String
+  id               String        @id @default(cuid())
+  businessId       String
+  saleId           String
+  clientId         String?
+  amount           Decimal       @db.Decimal(12, 2)
+  method           PaymentMethod
+  provider         String?
+  bankName         String?
+  note             String?
+  receivedBy       String
   // True only for the payment created inside Sale creation itself (even if
   // it was Rs 0) — a structural fact, never inferred from paidAt/createdAt
   // ordering, since a later payment's paidAt can legitimately be backdated
   // and must never be mistaken for the checkout-time payment.
-  isInitialPayment Boolean @default(false)
+  isInitialPayment Boolean       @default(false)
+  // True only for a refund payment created by the Return Settlement flow
+  // ("Refund Now") — stored as a NEGATIVE amount so every existing sum of
+  // Payment.amount (Amount Collected, client balances, etc.) automatically
+  // nets out the refund with no special-casing anywhere else.
+  isRefund         Boolean       @default(false)
   // User-chosen "received on" date — lets a later payment be backdated
   // (e.g. logging cash received yesterday). Deliberately separate from
   // createdAt (the system insert timestamp), same pattern as Expense.date.
-  paidAt     DateTime      @default(now())
-  createdAt  DateTime      @default(now())
+  paidAt           DateTime      @default(now())
+  createdAt        DateTime      @default(now())
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  sale     Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  client   Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sale     Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  client   Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  refundOf CustomerRefund?
 
   @@index([businessId])
   @@index([saleId])
+  @@index([clientId])
+}
+
+// Refund/store-credit liability created by the Return Settlement flow when a
+// return leaves the shop owing the customer money. This is a separate
+// "money we owe" record — the opposite direction of Payment/Client balance
+// (money the customer owes the shop) — so it can never be confused with, or
+// silently netted into, Customer Receivables.
+enum CustomerRefundStatus {
+  // Refund Later — the shop owes this amount, nothing has been paid out yet.
+  // Deliberately excluded from Customer Receivables (see ClientsService).
+  PENDING
+  // Refund Now (immediately), or a PENDING refund later completed — either
+  // way, a negative Payment row (see Payment.isRefund) records the actual
+  // cash paid out.
+  COMPLETED
+}
+
+model CustomerRefund {
+  id              String               @id @default(cuid())
+  businessId      String
+  saleId          String
+  clientId        String
+  saleReturnId    String               @unique
+  amount          Decimal              @db.Decimal(12, 2)
+  status          CustomerRefundStatus @default(PENDING)
+  method          PaymentMethod?
+  referenceNumber String?
+  note            String?
+  createdBy       String
+  createdAt       DateTime             @default(now())
+  completedAt     DateTime?
+  completedBy     String?
+  // The negative Payment row that actually paid this out — set once
+  // status becomes COMPLETED, null while PENDING.
+  paymentId       String?              @unique
+
+  business   Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sale       Sale       @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  client     Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  saleReturn SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+  payment    Payment?   @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([saleId])
+  @@index([clientId])
+  @@index([status])
+}
+
+enum ClientHistoryEntryType {
+  SALE
+  PAYMENT
+  RETURN
+}
+
+// Hides one Sale/Payment/SaleReturn row from the Client History UI only —
+// never touches the underlying record. Sales/Payments/Receivables/Revenue/
+// Profit/Inventory/Dashboard all read straight from Sale/Payment/SaleReturn
+// and never join this table, so hiding a client-history entry can never
+// change any of those figures. entryId points at whichever table entryType
+// names (Sale.id, Payment.id, or SaleReturn.id) — no FK, since it spans
+// three different target tables.
+model ClientHistoryHide {
+  id         String                 @id @default(cuid())
+  businessId String
+  clientId   String
+  entryType  ClientHistoryEntryType
+  entryId    String
+  reason     String
+  hiddenBy   String
+  hiddenAt   DateTime               @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, entryType, entryId])
+  @@index([businessId])
   @@index([clientId])
 }
 
@@ -452,7 +556,7 @@ model SaleItem {
 
   // Cost Price sale ke waqt snapshot ki gayi hai (ProductUnit ya Product se) —
   // taake baad mein product edit/archive/delete hone se purana profit kabhi na badle
-  costPrice   Decimal @db.Decimal(12, 2)
+  costPrice Decimal @db.Decimal(12, 2)
 
   // Agar serialized product (phone) becha gaya, to IMEI record ka reference
   productUnitId String?
@@ -467,4 +571,146 @@ model SaleItem {
   returnLines SaleReturnItem[]
 
   @@index([saleId])
+}
+
+// =====================================================================
+// Vendor Management Module (additive, isolated) — a purchase/payment
+// recording module only. It never touches Product/ProductUnit/stock — a
+// Purchase's items are manual free-text snapshots, not references into the
+// product catalogue, and creating/paying a purchase never creates stock,
+// ProductUnits, or stock movements. Does not modify Product/ProductUnit/
+// Sale/Client/Payment behavior.
+// =====================================================================
+
+enum PurchaseStatus {
+  ACTIVE
+  CANCELLED
+}
+
+model Vendor {
+  id           String  @id @default(cuid())
+  businessId   String
+  businessName String
+  phone        String
+  address      String?
+  notes        String?
+  isActive     Boolean @default(true)
+
+  // Deactivation only — a vendor with purchase/payment history is never
+  // hard-deleted (see VendorsService.setStatus).
+  archivedAt DateTime?
+  archivedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business  Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  purchases Purchase[]
+  payments  VendorPayment[]
+
+  @@index([businessId])
+  @@index([businessId, isActive])
+}
+
+model Purchase {
+  id             String         @id @default(cuid())
+  businessId     String
+  vendorId       String
+  // Branch-specific; nullable because this application does not yet expose
+  // outlet management UI — a business with a single implicit location simply
+  // leaves this null, exactly like the existing User.outletId convention.
+  outletId       String?
+  // Sequential per business (never resets), same convention as
+  // Sale.dailyInvoiceNumber's count-based numbering.
+  purchaseNumber Int
+  purchaseDate   DateTime       @default(now())
+  dueDate        DateTime?
+  status         PurchaseStatus @default(ACTIVE)
+
+  // Sum of all PurchaseItem.lineTotal — the only amount this module tracks;
+  // there is no discount/charge/tax concept.
+  totalAmount Decimal @db.Decimal(12, 2)
+
+  notes String?
+
+  createdBy    String
+  cancelledAt  DateTime?
+  cancelledBy  String?
+  cancelReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  vendor   Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  outlet   Outlet?         @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  items    PurchaseItem[]
+  payments VendorPayment[]
+
+  @@unique([businessId, purchaseNumber])
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([vendorId])
+  @@index([outletId])
+}
+
+// A manual, free-text purchase line — never a reference into the Product
+// catalogue. Quantity/Unit Cost/Line Total are a snapshot of what the owner
+// says they bought, with no relation to Product/ProductUnit whatsoever.
+model PurchaseItem {
+  id          String  @id @default(cuid())
+  purchaseId  String
+  itemName    String
+  description String?
+  quantity    Int
+  unitCost    Decimal @db.Decimal(12, 2)
+  lineTotal   Decimal @db.Decimal(12, 2)
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId])
+}
+
+// One row per amount paid to a vendor against a purchase — the initial
+// payment recorded at purchase creation (isInitialPayment: true) AND every
+// later "Record Vendor Payment" installment. Always tied to exactly one
+// Purchase — there is no cross-purchase allocation/advance-pool concept.
+model VendorPayment {
+  id                      String        @id @default(cuid())
+  businessId              String
+  vendorId                String
+  // Nullable only to preserve any pre-existing row from before this field
+  // was required — every payment created through the API always sets it.
+  purchaseId              String?
+  amount                  Decimal       @db.Decimal(12, 2)
+  method                  PaymentMethod
+  provider                String?
+  bankName                String?
+  referenceNumber         String?
+  note                    String?
+  paidAt                  DateTime      @default(now())
+  // True only for the payment created inside Purchase creation itself (even
+  // if it was Rs 0) — mirrors Payment.isInitialPayment on the Sales side.
+  isInitialPayment        Boolean       @default(false)
+  // When true, this payment is subtracted from the dashboard's "Available
+  // Sales Cash" figure — it never changes Total Sales/Profit/COGS.
+  deductFromDashboardCash Boolean       @default(false)
+  createdBy               String
+
+  // Reversal — the payment row itself is never deleted; a reversed payment's
+  // amount is excluded from every "amount paid"/"remaining" calculation and
+  // from the Available Sales Cash deduction.
+  reversedAt     DateTime?
+  reversedBy     String?
+  reversalReason String?
+
+  createdAt DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  vendor   Vendor    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  purchase Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([vendorId])
+  @@index([purchaseId])
 }

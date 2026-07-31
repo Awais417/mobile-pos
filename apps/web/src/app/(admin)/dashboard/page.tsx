@@ -191,6 +191,11 @@ export default function DashboardPage() {
   const periodNetCashNum = kpis ? Number(kpis.periodNetCash) : 0;
   const isNetCashNegative = periodNetCashNum < 0;
   const outstandingReceivableNum = receivables ? Number(receivables.totalOutstandingReceivable) : 0;
+  // Vendor module — Collected Sales minus only the vendor payments marked
+  // "Deduct from Available Sales Cash". Never changes Total Sales/Profit
+  // above; purely a separate cash-on-hand figure.
+  const availableSalesCashNum = kpis ? Number(kpis.availableSalesCash) : 0;
+  const isAvailableCashNegative = availableSalesCashNum < 0;
 
   const periodProfitNum = kpis ? Number(kpis.periodProfit) : 0;
   const isPeriodLoss = periodProfitNum < 0;
@@ -257,6 +262,12 @@ export default function DashboardPage() {
           value: formatCurrency(periodNetCashNum),
           icon: isNetCashNegative ? TrendingDownIcon : TrendingUpIcon,
           color: isNetCashNegative ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600',
+        },
+        {
+          label: `Available Sales Cash (${selectedLabel})`,
+          value: formatCurrency(availableSalesCashNum),
+          icon: isAvailableCashNegative ? TrendingDownIcon : WalletIcon,
+          color: isAvailableCashNegative ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600',
         },
       ]
     : [];
@@ -394,12 +405,13 @@ export default function DashboardPage() {
             <h2 className="text-lg font-semibold text-slate-900">Cash Collection</h2>
             <p className="mt-0.5 text-xs text-slate-400">
               Collected = actual payments received · Receivable = Revenue − Collected. An unpaid balance
-              here is money still owed, not a loss.
+              here is money still owed, not a loss. Available Sales Cash = Collected − vendor payments
+              marked for deduction; it never changes Total Sales or Profit.
             </p>
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {loading
-              ? Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} className="h-32" />)
+              ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="h-32" />)
               : cashCollectionCards.map((c) => <SummaryCard key={c.label} {...c} />)}
           </div>
         </div>

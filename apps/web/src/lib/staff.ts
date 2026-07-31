@@ -14,7 +14,7 @@ export interface CreateStaffInput {
   fullName: string;
   email: string;
   password: string;
-  role: 'SALESMAN';
+  role: 'SALESMAN' | 'ACCOUNTANT' | 'BRANCH_MANAGER';
 }
 
 export async function getStaff(): Promise<Staff[]> {

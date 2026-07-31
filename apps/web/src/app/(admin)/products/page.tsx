@@ -177,6 +177,7 @@ function buildUnitOverridePayload(u: UnitFormState, isApple: boolean): UnitOverr
     conditionGrade: u.conditionGrade.trim() ? Number(u.conditionGrade) : undefined,
     costPrice: u.costPrice.trim() ? Number(u.costPrice) : undefined,
     salePrice: u.salePrice.trim() ? Number(u.salePrice) : undefined,
+    notes: u.notes.trim() || undefined,
   };
 }
 
@@ -664,6 +665,7 @@ interface UnitFormState {
   batteryHealth: string;
   costPrice: string;
   salePrice: string;
+  notes: string;
 }
 
 // BRAND_NEW matches the default used everywhere else a device condition is
@@ -679,6 +681,7 @@ const emptyUnitForm: UnitFormState = {
   batteryHealth: '',
   costPrice: '',
   salePrice: '',
+  notes: '',
 };
 
 const emptyProductForm: ProductFormState = {
@@ -1186,6 +1189,18 @@ function UnitCard({
               className={inputClass}
             />
             {errors.sale && <p className={errorClass}>{errors.sale}</p>}
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className={labelClass}>
+              Note <span className="text-slate-400">(optional — internal, this unit only)</span>
+            </label>
+            <textarea
+              value={unit.notes}
+              onChange={(e) => onChange('notes', e.target.value)}
+              placeholder="e.g. Minor scratch on back, Face ID not working..."
+              rows={2}
+              className={inputClass}
+            />
           </div>
         </div>
       )}

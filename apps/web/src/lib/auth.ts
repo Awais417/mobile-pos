@@ -1,7 +1,9 @@
 import { apiClient } from './api-client';
 import { tokenStorage } from './token-storage';
 
-export type Role = 'ADMIN' | 'SALESMAN';
+// ACCOUNTANT/BRANCH_MANAGER added for the Vendor module — ADMIN/SALESMAN
+// behavior is unchanged.
+export type Role = 'ADMIN' | 'SALESMAN' | 'ACCOUNTANT' | 'BRANCH_MANAGER';
 
 export interface CurrentUser {
   userId: string;

@@ -12,6 +12,7 @@ import {
   DeviceCondition,
 } from '@/lib/product-units';
 import { formatCurrency, formatNumber, toWholeRupees } from '@/lib/format';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
   stripDecimalPoint,
   blockDecimalKeyDown,
@@ -80,6 +81,8 @@ const CONDITION_LABELS: Record<DeviceCondition, string> = {
 };
 
 export default function TerminalPage() {
+  const { user } = useCurrentUser();
+  const isAdmin = user?.role === 'ADMIN';
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -563,6 +566,7 @@ export default function TerminalPage() {
         totalAmount: '0.00',
         totalPaid: '0.00',
         remainingBalance: '0.00',
+        refundDue: '0.00',
         status: null,
         latestSale: null,
       });
@@ -582,6 +586,7 @@ export default function TerminalPage() {
                 totalAmount: '0.00',
                 totalPaid: '0.00',
                 remainingBalance: '0.00',
+                refundDue: '0.00',
                 status: null,
                 latestSale: null,
               },
@@ -857,7 +862,7 @@ export default function TerminalPage() {
       document.removeEventListener('keydown', handleKeyDown);
       previouslyFocused?.focus();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [receipt]);
 
   const paymentMethods: {
@@ -895,9 +900,16 @@ export default function TerminalPage() {
                         {c.product.name}
                       </div>
                       {c.unit ? (
-                        <div className="truncate font-mono text-xs text-slate-500">
-                          IMEI: {c.unit.imei1}
-                        </div>
+                        <>
+                          <div className="truncate font-mono text-xs text-slate-500">
+                            IMEI: {c.unit.imei1}
+                          </div>
+                          {c.unit.notes && (
+                            <div className="truncate text-xs italic text-amber-600">
+                              Note: {c.unit.notes}
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="truncate text-xs text-slate-500">
                           {c.price > 0
@@ -919,6 +931,14 @@ export default function TerminalPage() {
                   {c.unit ? (
                     // Phone — quantity fixed 1, price editable (negotiation)
                     <div>
+                      {isAdmin && c.unit.costPrice != null && (
+                        <div className="mb-1.5 text-xs text-slate-500">
+                          Cost Price:{' '}
+                          <span className="font-semibold text-slate-600">
+                            {formatCurrency(c.unit.costPrice)}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between gap-3">
                         <button
                           type="button"
@@ -956,6 +976,14 @@ export default function TerminalPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
+                      {isAdmin && c.product.costPrice != null && (
+                        <div className="text-xs text-slate-500">
+                          Cost Price:{' '}
+                          <span className="font-semibold text-slate-600">
+                            {formatCurrency(c.product.costPrice)}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex shrink-0 items-center gap-1 rounded-lg bg-white p-1 shadow-sm">
                           <button
@@ -1485,6 +1513,11 @@ export default function TerminalPage() {
                           .filter(Boolean)
                           .join(' · ')}
                       </div>
+                      {u.notes && (
+                        <div className="mt-1 truncate text-xs italic text-amber-600">
+                          Note: {u.notes}
+                        </div>
+                      )}
                     </div>
                     {u.salePrice != null ? (
                       <PriceDisplay value={u.salePrice} size="lg" className="shrink-0" />

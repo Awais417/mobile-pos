@@ -71,6 +71,11 @@ export class UnitOverrideDto {
   @IsNumber()
   @Min(0)
   salePrice?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 // Add Product (phone) flow — Category -> Model -> specs -> inventory -> pricing.

@@ -12,6 +12,12 @@ import { Loader2Icon } from '@/components/icons';
 // Salesman's browser navigates to.
 const SALESMAN_ALLOWED_PATHS = ['/terminal', '/clients'];
 
+// Vendor module roles (additive) — mirrors the backend @Roles() split:
+// Accountant manages vendors/purchases (read) + payments/ledger/payables;
+// Branch Manager creates/receives purchases for their own branch only.
+const ACCOUNTANT_ALLOWED_PATHS = ['/vendors', '/purchases', '/vendor-payments', '/payables'];
+const BRANCH_MANAGER_ALLOWED_PATHS = ['/vendors', '/purchases'];
+
 export function RoleGate({ children }: { children: ReactNode }) {
   const { user, loading } = useCurrentUser();
   const pathname = usePathname();
@@ -19,7 +25,10 @@ export function RoleGate({ children }: { children: ReactNode }) {
 
   const isAllowed =
     !!user &&
-    (user.role === 'ADMIN' || (user.role === 'SALESMAN' && SALESMAN_ALLOWED_PATHS.includes(pathname)));
+    (user.role === 'ADMIN' ||
+      (user.role === 'SALESMAN' && SALESMAN_ALLOWED_PATHS.includes(pathname)) ||
+      (user.role === 'ACCOUNTANT' && ACCOUNTANT_ALLOWED_PATHS.includes(pathname)) ||
+      (user.role === 'BRANCH_MANAGER' && BRANCH_MANAGER_ALLOWED_PATHS.includes(pathname)));
 
   useEffect(() => {
     if (!loading && user && !isAllowed) {

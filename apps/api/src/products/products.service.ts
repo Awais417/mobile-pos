@@ -473,7 +473,7 @@ export class ProductsService extends TenantScopedService {
             supplier: dto.supplier ?? null,
             costPrice: override?.costPrice ?? dto.costPrice,
             salePrice: override?.salePrice ?? dto.salePrice,
-            notes: dto.notes ?? null,
+            notes: override?.notes ?? dto.notes ?? null,
             status: UnitStatus.IN_STOCK,
           },
         });

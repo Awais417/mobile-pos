@@ -17,6 +17,7 @@ import { StaffModule } from './staff/staff.module';
 import { HealthModule } from './health/health.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { ClientsModule } from './clients/clients.module';
+import { VendorsModule } from './vendors/vendors.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { ClientsModule } from './clients/clients.module';
     HealthModule,
     ExpensesModule,
     ClientsModule,
+    VendorsModule,
   ],
   providers: [
     {

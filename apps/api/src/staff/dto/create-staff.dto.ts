@@ -16,7 +16,10 @@ export class CreateStaffDto {
   @MinLength(8)
   password!: string;
 
-  @ApiProperty({ example: 'SALESMAN', enum: ['SALESMAN'] })
-  @IsIn(['SALESMAN'])
-  role!: 'SALESMAN';
+  @ApiProperty({
+    example: 'SALESMAN',
+    enum: ['SALESMAN', 'ACCOUNTANT', 'BRANCH_MANAGER'],
+  })
+  @IsIn(['SALESMAN', 'ACCOUNTANT', 'BRANCH_MANAGER'])
+  role!: 'SALESMAN' | 'ACCOUNTANT' | 'BRANCH_MANAGER';
 }

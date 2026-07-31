@@ -120,6 +120,30 @@ export interface ReturnItemResult {
   amount: string;
 }
 
+// The Refund Now / Refund Later choice from the Return Settlement UI —
+// required only when the return leaves a refund due to the customer
+// (server-computed; `amount` must equal that computed refund due exactly).
+export interface RefundSettlementInput {
+  mode: 'REFUND_NOW' | 'REFUND_LATER';
+  amount: number;
+  method?: PaymentMethod;
+  provider?: string;
+  bankName?: string;
+  referenceNumber?: string;
+  note?: string;
+}
+
+// Server-authoritative numbers after the return (and any refund settlement)
+// were applied — never trust a client-side estimate for these; always
+// display what the backend returns here. null when the sale has no client
+// attached (a walk-in return has no due/refund concept to settle).
+export interface ReturnSettlementResult {
+  netSaleTotal: string;
+  customerDue: string;
+  refundDue: string;
+  refund: { id: string; status: 'PENDING' | 'COMPLETED'; amount: string } | null;
+}
+
 export interface SaleReturnResult {
   id: string;
   saleId: string;
@@ -127,13 +151,18 @@ export interface SaleReturnResult {
   totalAmount: string;
   createdAt: string;
   items: ReturnItemResult[];
+  settlement: ReturnSettlementResult | null;
 }
 
 // Returns one or more line items back to inventory — restores the exact
 // IMEI unit(s) or stock quantity. Always linked to the original sale.
 export async function returnSaleItems(
   saleId: string,
-  input: { items: ReturnLineInput[]; reason?: string },
+  input: {
+    items: ReturnLineInput[];
+    reason?: string;
+    refundSettlement?: RefundSettlementInput;
+  },
 ): Promise<SaleReturnResult> {
   return apiClient.post<SaleReturnResult>(`/sales/${saleId}/return`, input);
 }

@@ -131,6 +131,7 @@ export interface UnitOverride {
   conditionGrade?: number;
   costPrice?: number;
   salePrice?: number;
+  notes?: string;
 }
 
 // Add Product (phone) — Category -> Model -> specs -> inventory -> pricing.

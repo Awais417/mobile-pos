@@ -21,6 +21,7 @@ import { ArchiveSaleDto } from './dto/archive-sale.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { VoidSaleDto } from './dto/void-sale.dto';
+import { CompleteRefundDto } from './dto/complete-refund.dto';
 
 @ApiTags('sales')
 @ApiBearerAuth('access-token')
@@ -95,6 +96,20 @@ export class SalesController {
     @Body() dto: CreateReturnDto,
   ) {
     return this.salesService.returnItems(businessId, id, user.userId, dto);
+  }
+
+  // Settles a pending "Refund Later" — pays out the amount already recorded
+  // as owed to the customer (see SalesService.completeRefund). `id` here is
+  // the CustomerRefund id, not the sale id.
+  @Post('refunds/:id/complete')
+  @Roles('ADMIN')
+  completeRefund(
+    @TenantId() businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CompleteRefundDto,
+  ) {
+    return this.salesService.completeRefund(businessId, id, user.userId, dto);
   }
 
   // Cancels a credit sale entirely — reverses inventory and is excluded from
