@@ -21,14 +21,14 @@ import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { HideClientHistoryDto } from './dto/hide-client-history.dto';
 
-// Admin can view all clients; Salesman can list/search/add/view them too —
-// only editing an existing client's basic info is Admin-only (see the
-// method-level override on update() below).
+// Admin can view all clients; Salesman/Accountant/Branch Manager can
+// list/search/add/view them too — only editing, archiving, and Client
+// History actions stay Admin-only (see the method-level overrides below).
 @ApiTags('clients')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('clients')
-@Roles('ADMIN', 'SALESMAN')
+@Roles('ADMIN', 'SALESMAN', 'ACCOUNTANT', 'BRANCH_MANAGER')
 export class ClientsController {
   constructor(private readonly clientsService: ClientsService) {}
 

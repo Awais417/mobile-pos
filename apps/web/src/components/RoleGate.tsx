@@ -15,8 +15,16 @@ const SALESMAN_ALLOWED_PATHS = ['/terminal', '/clients'];
 // Vendor module roles (additive) — mirrors the backend @Roles() split:
 // Accountant manages vendors/purchases (read) + payments/ledger/payables;
 // Branch Manager creates/receives purchases for their own branch only.
-const ACCOUNTANT_ALLOWED_PATHS = ['/vendors', '/purchases', '/vendor-payments', '/payables'];
-const BRANCH_MANAGER_ALLOWED_PATHS = ['/vendors', '/purchases'];
+// Both also get POS Terminal + Clients (same base access as Salesman above).
+const ACCOUNTANT_ALLOWED_PATHS = [
+  '/vendors',
+  '/purchases',
+  '/vendor-payments',
+  '/payables',
+  '/terminal',
+  '/clients',
+];
+const BRANCH_MANAGER_ALLOWED_PATHS = ['/vendors', '/purchases', '/terminal', '/clients'];
 
 export function RoleGate({ children }: { children: ReactNode }) {
   const { user, loading } = useCurrentUser();

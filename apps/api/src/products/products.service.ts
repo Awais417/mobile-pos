@@ -64,7 +64,10 @@ export class ProductsService extends TenantScopedService {
       );
     }
 
-    if (role !== 'ADMIN') {
+    // Salesman also sees Cost Price here (POS Terminal's current-sale cart)
+    // — unlike the customer-facing receipt, which stays ADMIN-only (see
+    // sales.service.ts). Every other role still gets it hidden.
+    if (role !== 'ADMIN' && role !== 'SALESMAN') {
       return withAvailability.map((p) => ({ ...p, costPrice: null }));
     }
     return withAvailability;

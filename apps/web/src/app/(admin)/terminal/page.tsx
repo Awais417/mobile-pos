@@ -83,6 +83,9 @@ const CONDITION_LABELS: Record<DeviceCondition, string> = {
 export default function TerminalPage() {
   const { user } = useCurrentUser();
   const isAdmin = user?.role === 'ADMIN';
+  // Cost Price in the cart is also allowed for Salesman (unlike the
+  // customer-facing receipt, which stays ADMIN-only — see sales.service.ts).
+  const isSalesman = user?.role === 'SALESMAN';
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -931,7 +934,7 @@ export default function TerminalPage() {
                   {c.unit ? (
                     // Phone — quantity fixed 1, price editable (negotiation)
                     <div>
-                      {isAdmin && c.unit.costPrice != null && (
+                      {(isAdmin || isSalesman) && c.unit.costPrice != null && (
                         <div className="mb-1.5 text-xs text-slate-500">
                           Cost Price:{' '}
                           <span className="font-semibold text-slate-600">
@@ -976,7 +979,7 @@ export default function TerminalPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {isAdmin && c.product.costPrice != null && (
+                      {(isAdmin || isSalesman) && c.product.costPrice != null && (
                         <div className="text-xs text-slate-500">
                           Cost Price:{' '}
                           <span className="font-semibold text-slate-600">

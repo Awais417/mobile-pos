@@ -109,7 +109,10 @@ export class ProductUnitsService extends TenantScopedService {
       orderBy: { createdAt: 'desc' },
     });
 
-    if (role !== 'ADMIN') {
+    // Salesman also sees Cost Price here (POS Terminal's IMEI/unit picker
+    // and current-sale cart) — unlike the customer-facing receipt, which
+    // stays ADMIN-only (see sales.service.ts). Every other role still hides it.
+    if (role !== 'ADMIN' && role !== 'SALESMAN') {
       return units.map((u) => this.hideCostPrice(u));
     }
     return units;
@@ -126,7 +129,7 @@ export class ProductUnitsService extends TenantScopedService {
       include: { product: { include: { category: true, model: true } } },
     });
 
-    if (unit && role !== 'ADMIN') {
+    if (unit && role !== 'ADMIN' && role !== 'SALESMAN') {
       return this.hideCostPrice(unit);
     }
     return unit;
