@@ -33,15 +33,24 @@ import {
 import type { ComponentType } from 'react';
 import type { IconProps } from '@/components/icons';
 
-type DateFilterKey = 'today' | 'week' | 'month' | 'all';
+type DateFilterKey = 'today' | 'week' | 'month' | 'specific' | 'all';
 type PaymentFilterKey = PaymentMethod | 'ALL';
 
 const DATE_FILTERS: { key: DateFilterKey; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'week', label: 'This Week' },
   { key: 'month', label: 'This Month' },
+  { key: 'specific', label: 'Specific Date' },
   { key: 'all', label: 'All Time' },
 ];
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 const PAYMENT_FILTERS: {
   key: PaymentFilterKey;
@@ -55,7 +64,7 @@ const PAYMENT_FILTERS: {
   { key: 'BANK_TRANSFER', label: 'Bank', icon: LandmarkIcon },
 ];
 
-function isInRange(dateStr: string, key: DateFilterKey): boolean {
+function isInRange(dateStr: string, key: DateFilterKey, specificDate: string): boolean {
   const date = new Date(dateStr);
   const now = new Date();
 
@@ -79,6 +88,16 @@ function isInRange(dateStr: string, key: DateFilterKey): boolean {
 
   if (key === 'month') {
     return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  }
+
+  if (key === 'specific') {
+    if (!specificDate) return false;
+    // Parsed as local Y/M/D (not `new Date(specificDate)`, which JS treats as
+    // UTC midnight for a date-only string and can land on the wrong local day)
+    // then compared against the sale's own local Y/M/D — the full local day,
+    // 12:00 AM to 11:59:59 PM, regardless of what timezone createdAt is stored in.
+    const [y, m, d] = specificDate.split('-').map(Number);
+    return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
   }
 
   return true;
@@ -144,6 +163,7 @@ export default function SalesHistoryPage() {
   const [voiding, setVoiding] = useState(false);
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterKey>('today');
+  const [specificDate, setSpecificDate] = useState(todayIsoDate());
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilterKey>('ALL');
   const [salesmanFilter, setSalesmanFilter] = useState('');
 
@@ -159,7 +179,7 @@ export default function SalesHistoryPage() {
   const filteredSales = useMemo(() => {
     const q = search.trim().toLowerCase();
     return sales.filter((s) => {
-      if (!isInRange(s.createdAt, dateFilter)) return false;
+      if (!isInRange(s.createdAt, dateFilter, specificDate)) return false;
       if (paymentFilter !== 'ALL' && s.paymentMethod !== paymentFilter) return false;
       if (salesmanFilter && s.cashierName !== salesmanFilter) return false;
       if (q) {
@@ -170,7 +190,7 @@ export default function SalesHistoryPage() {
       }
       return true;
     });
-  }, [sales, search, dateFilter, paymentFilter, salesmanFilter]);
+  }, [sales, search, dateFilter, specificDate, paymentFilter, salesmanFilter]);
 
   const summary = useMemo(() => {
     return filteredSales.reduce(
@@ -241,7 +261,7 @@ export default function SalesHistoryPage() {
           </div>
         )}
 
-        <div className="mb-3 flex flex-wrap gap-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           {DATE_FILTERS.map((f) => (
             <button
               key={f.key}
@@ -255,6 +275,28 @@ export default function SalesHistoryPage() {
               {f.label}
             </button>
           ))}
+          {dateFilter === 'specific' && (
+            <>
+              <input
+                type="date"
+                value={specificDate}
+                max={todayIsoDate()}
+                onChange={(e) => setSpecificDate(e.target.value)}
+                className={`${inputClass} w-auto`}
+                aria-label="Select a date"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setDateFilter('today');
+                  setSpecificDate(todayIsoDate());
+                }}
+                className="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 underline-offset-2 transition hover:text-primary hover:underline"
+              >
+                Reset to Today
+              </button>
+            </>
+          )}
         </div>
 
         <div className="mb-3">
@@ -313,8 +355,12 @@ export default function SalesHistoryPage() {
           ) : filteredSales.length === 0 ? (
             <EmptyState
               icon={InboxIcon}
-              title="No sales recorded"
-              description="Completed sales will appear here."
+              title={dateFilter === 'specific' ? 'No sales found for this date' : 'No sales recorded'}
+              description={
+                dateFilter === 'specific'
+                  ? 'Try selecting a different date, or reset to today.'
+                  : 'Completed sales will appear here.'
+              }
             />
           ) : (
             <div className="scrollbar-thin overflow-x-auto">
