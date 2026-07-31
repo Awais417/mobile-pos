@@ -73,6 +73,41 @@ export class ProductsService extends TenantScopedService {
     return withAvailability;
   }
 
+  // Current Inventory Value (Cost) — sum of Cost Price for stock that
+  // physically still exists right now: every IN_STOCK ProductUnit
+  // (serialized) plus Cost Price × Stock Qty for every active non-serialized
+  // Product. Always Cost Price, never Selling Price — and never touches
+  // Vendor/Purchase Bills (a separate, manually entered ledger unrelated to
+  // Products). Mirrors the exact same formula already used for the
+  // Dashboard's own inventoryValue KPI (see SalesService.getDashboard), just
+  // computed as two lightweight DB-side aggregates here instead of loading
+  // every product/unit into memory — sold/reserved units, zero-stock and
+  // inactive non-serialized products are excluded by the WHERE clauses
+  // themselves, so nothing is ever double-counted.
+  async getInventoryValue(businessId: string) {
+    this.assertTenant(businessId);
+
+    const [serializedAgg, nonSerializedAgg] = await Promise.all([
+      this.prisma.productUnit.aggregate({
+        where: { businessId, status: UnitStatus.IN_STOCK },
+        _sum: { costPrice: true },
+      }),
+      this.prisma.$queryRaw<{ total: Prisma.Decimal | null }[]>`
+        SELECT SUM("costPrice" * "stockQty") as total
+        FROM "Product"
+        WHERE "businessId" = ${businessId}
+          AND "isSerialized" = false
+          AND "isActive" = true
+          AND "stockQty" > 0
+      `,
+    ]);
+
+    const serializedValue = Number(serializedAgg._sum.costPrice ?? 0);
+    const nonSerializedValue = Number(nonSerializedAgg[0]?.total ?? 0);
+
+    return { inventoryValue: (serializedValue + nonSerializedValue).toFixed(2) };
+  }
+
   // Products Page (admin catalogue) ke liye — server-side paginated, searched,
   // filtered, sorted listing. One row PER PRODUCT (not per unit): Stock is an
   // aggregate — COUNT of IN_STOCK units for serialized products, stockQty for

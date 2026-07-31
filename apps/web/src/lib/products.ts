@@ -205,6 +205,13 @@ export async function getProducts(options?: {
   return apiClient.get<Product[]>(`/products${query ? `?${query}` : ''}`);
 }
 
+// Current Inventory Value (Cost) — Inventory page's summary card. Computed
+// server-side as an efficient aggregate (see ProductsService.getInventoryValue),
+// never by loading the full catalogue here.
+export async function getInventoryValue(): Promise<{ inventoryValue: string }> {
+  return apiClient.get<{ inventoryValue: string }>('/products/inventory-value');
+}
+
 export async function getProductCounts(): Promise<ProductCounts> {
   return apiClient.get<ProductCounts>('/products/counts');
 }

@@ -60,6 +60,15 @@ export class ProductsController {
     return this.productsService.getCounts(businessId);
   }
 
+  // Current Inventory Value (Cost) — Inventory page's summary card. A
+  // dedicated, lightweight aggregate endpoint so this one number never
+  // requires loading the full catalogue into the frontend.
+  @Get('inventory-value')
+  @Roles('ADMIN')
+  getInventoryValue(@TenantId() businessId: string) {
+    return this.productsService.getInventoryValue(businessId);
+  }
+
   // Admin Products Page — server-side paginated/searched/filtered/sorted catalogue.
   // Kept separate from the plain findAll() above, which POS Terminal still relies
   // on for its own full, unpaginated client-side product search.

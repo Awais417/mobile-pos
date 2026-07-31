@@ -10,7 +10,8 @@ import {
 } from '@/lib/product-units';
 import { getCategories, Category } from '@/lib/categories';
 import { getModels, Model } from '@/lib/models';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { getInventoryValue } from '@/lib/products';
+import { formatCurrency, formatCompactCurrency, formatNumber } from '@/lib/format';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SummaryCard } from '@/components/ui/SummaryCard';
@@ -88,6 +89,10 @@ export default function InventoryPage() {
   const [units, setUnits] = useState<ProductUnit[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [models, setModels] = useState<Model[]>([]);
+  // Current Inventory Value (Cost) — fetched as a server-side aggregate
+  // (see ProductsService.getInventoryValue), never computed from `units`
+  // here, since that would miss non-serialized (accessory) stock entirely.
+  const [inventoryValue, setInventoryValue] = useState('0');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewUnit, setViewUnit] = useState<ProductUnit | null>(null);
@@ -105,14 +110,16 @@ export default function InventoryPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [allUnits, cats, mdls] = await Promise.all([
+      const [allUnits, cats, mdls, valueResult] = await Promise.all([
         getProductUnits(),
         getCategories(),
         getModels(),
+        getInventoryValue(),
       ]);
       setUnits(allUnits);
       setCategories(cats);
       setModels(mdls);
+      setInventoryValue(valueResult.inventoryValue);
     } catch {
       setError('Could not load inventory.');
     } finally {
@@ -154,9 +161,6 @@ export default function InventoryPage() {
   const availableDevices = units.filter((u) => u.status === 'IN_STOCK').length;
   const soldDevices = units.filter((u) => u.status === 'SOLD').length;
   const reservedDevices = units.filter((u) => u.status === 'RESERVED').length;
-  const inventoryValue = units
-    .filter((u) => u.status === 'IN_STOCK')
-    .reduce((sum, u) => sum + Number(u.costPrice ?? 0), 0);
 
   const filteredUnits = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -219,7 +223,15 @@ export default function InventoryPage() {
     { label: 'Sold', value: formatNumber(soldDevices), icon: CheckCircleIcon, color: 'bg-blue-50 text-blue-600' },
     { label: 'Reserved', value: formatNumber(reservedDevices), icon: ClockIcon, color: 'bg-purple-50 text-purple-600' },
     ...(isAdmin
-      ? [{ label: 'Inventory Value', value: formatCurrency(inventoryValue), icon: TagIcon, color: 'bg-amber-50 text-amber-600' }]
+      ? [
+          {
+            label: 'Current Inventory Value (Cost)',
+            value: formatCompactCurrency(inventoryValue),
+            subValue: `Exact: ${formatCurrency(inventoryValue)}`,
+            icon: TagIcon,
+            color: 'bg-amber-50 text-amber-600',
+          },
+        ]
       : []),
   ];
 

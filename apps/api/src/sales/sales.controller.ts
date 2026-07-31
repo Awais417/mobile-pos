@@ -15,7 +15,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/auth.types';
-import { SalesService } from './sales.service';
+import { SalesService, DashboardPeriod } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { ArchiveSaleDto } from './dto/archive-sale.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -45,12 +45,22 @@ export class SalesController {
     return this.salesService.getSummary(businessId);
   }
 
+  // Calendar-aligned Today/This Week/This Month/All Time, plus an exact
+  // calendar day — not a rolling "last N days" window (see
+  // SalesService.getDashboard). Defaults to This Month for an unrecognized
+  // or missing period.
   @Get('dashboard')
   @Roles('ADMIN')
-  getDashboard(@TenantId() businessId: string, @Query('days') days?: string) {
-    const parsedDays = days ? parseInt(days, 10) : 7;
-    const safeDays = [1, 7, 30, 90, 365].includes(parsedDays) ? parsedDays : 7;
-    return this.salesService.getDashboard(businessId, safeDays);
+  getDashboard(
+    @TenantId() businessId: string,
+    @Query('period') period?: string,
+    @Query('date') date?: string,
+  ) {
+    const validKeys: DashboardPeriod['key'][] = ['today', 'week', 'month', 'all', 'date'];
+    const key = validKeys.includes(period as DashboardPeriod['key'])
+      ? (period as DashboardPeriod['key'])
+      : 'month';
+    return this.salesService.getDashboard(businessId, { key, date });
   }
 
   @Get()

@@ -15,17 +15,18 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { getDashboard, DashboardData } from '@/lib/dashboard';
+import { getDashboard, DashboardData, DashboardPeriodKey } from '@/lib/dashboard';
 import { getReceivablesSummary, ReceivablesSummary } from '@/lib/clients';
 import { getSales, Sale, PaymentMethod } from '@/lib/sales';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { formatCurrency, formatCompactCurrency, formatNumber } from '@/lib/format';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SummaryCard } from '@/components/ui/SummaryCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceDisplay } from '@/components/ui/PriceDisplay';
 import { SkeletonCard } from '@/components/ui/Skeletons';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { inputClass } from '@/components/ui/styles';
 import {
   WalletIcon,
   TrendingUpIcon,
@@ -45,13 +46,36 @@ import {
 import type { ComponentType } from 'react';
 import type { IconProps } from '@/components/icons';
 
-const DAY_OPTIONS = [
-  { key: 1, label: 'Today' },
-  { key: 7, label: '7 Days' },
-  { key: 30, label: '30 Days' },
-  { key: 90, label: '3 Months' },
-  { key: 365, label: '1 Year' },
+// Calendar-aligned period selector (Today/This Week/This Month/Specific
+// Date/All Time) — not a rolling "last N days" window. Mirrors the same
+// filter model already used on Sales History.
+const PERIOD_OPTIONS: { key: DashboardPeriodKey; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This Week' },
+  { key: 'month', label: 'This Month' },
+  { key: 'date', label: 'Specific Date' },
+  { key: 'all', label: 'All Time' },
 ];
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// e.g. "31 Jul 2026" — parsed as local Y/M/D (not `new Date(iso)`, which JS
+// treats as UTC midnight for a date-only string and can land on the wrong
+// local day).
+function formatPeriodDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
 
 const PAYMENT_COLORS: Record<string, string> = {
   CASH: '#10b981',
@@ -153,21 +177,23 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
-  const [days, setDays] = useState(1);
+  // This Month is the default dashboard period.
+  const [period, setPeriod] = useState<DashboardPeriodKey>('month');
+  const [specificDate, setSpecificDate] = useState(todayIsoDate());
 
   // Outstanding Receivables — a live, current balance (not scoped to the
-  // Today/7 Days/... selector above, since money still owed doesn't reset
-  // per period). Fetched once, independent of `days`.
+  // period selector above, since money still owed doesn't reset per
+  // period). Fetched once, independent of the selected period.
   const [receivables, setReceivables] = useState<ReceivablesSummary | null>(null);
   const [receivablesLoading, setReceivablesLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    getDashboard(days)
+    getDashboard(period, period === 'date' ? specificDate : undefined)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [days]);
+  }, [period, specificDate]);
 
   useEffect(() => {
     getSales()
@@ -185,7 +211,15 @@ export default function DashboardPage() {
   const kpis = data?.kpis;
 
   const selectedLabel =
-    DAY_OPTIONS.find((o) => o.key === days)?.label ?? 'Selected Period';
+    period === 'today'
+      ? 'Today'
+      : period === 'week'
+        ? 'This Week'
+        : period === 'month'
+          ? 'This Month'
+          : period === 'all'
+            ? 'All Time'
+            : formatPeriodDate(specificDate);
 
   const periodCollectedNum = kpis ? Number(kpis.periodCollected) : 0;
   const periodNetCashNum = kpis ? Number(kpis.periodNetCash) : 0;
@@ -209,13 +243,15 @@ export default function DashboardPage() {
   const salesPerformanceCards: {
     label: string;
     value: string | number;
+    subValue?: string;
     icon: ComponentType<IconProps>;
     color: string;
   }[] = kpis
     ? [
         {
-          label: `Total Revenue (${selectedLabel})`,
-          value: formatCurrency(kpis.periodRevenue),
+          label: `Revenue — ${selectedLabel}`,
+          value: formatCompactCurrency(kpis.periodRevenue),
+          subValue: `Exact: ${formatCurrency(kpis.periodRevenue)}`,
           icon: WalletIcon,
           color: 'bg-emerald-50 text-emerald-600',
         },
@@ -340,13 +376,13 @@ export default function DashboardPage() {
           title={`${greeting()}, ${firstName}`}
           subtitle="Here's your mobile shop's performance overview."
           actions={
-            <div className="flex flex-wrap gap-2">
-              {DAY_OPTIONS.map((opt) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {PERIOD_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
-                  onClick={() => setDays(opt.key)}
+                  onClick={() => setPeriod(opt.key)}
                   className={`rounded-xl px-3.5 py-2 text-sm font-medium transition ${
-                    days === opt.key
+                    period === opt.key
                       ? 'bg-primary text-white shadow-sm'
                       : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                   }`}
@@ -354,6 +390,25 @@ export default function DashboardPage() {
                   {opt.label}
                 </button>
               ))}
+              {period === 'date' && (
+                <>
+                  <input
+                    type="date"
+                    value={specificDate}
+                    max={todayIsoDate()}
+                    onChange={(e) => setSpecificDate(e.target.value)}
+                    className={`${inputClass} w-auto`}
+                    aria-label="Select a date"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPeriod('today')}
+                    className="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 underline-offset-2 transition hover:text-primary hover:underline"
+                  >
+                    Reset to Today
+                  </button>
+                </>
+              )}
             </div>
           }
         />

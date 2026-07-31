@@ -12,6 +12,14 @@ import { CreateReturnDto } from './dto/create-return.dto';
 import { VoidSaleDto } from './dto/void-sale.dto';
 import { CompleteRefundDto } from './dto/complete-refund.dto';
 
+// Dashboard period selector — calendar-aligned (not a rolling "last N
+// days" window). 'date' additionally carries the selected day as
+// 'YYYY-MM-DD'; every other key ignores it.
+export interface DashboardPeriod {
+  key: 'today' | 'week' | 'month' | 'all' | 'date';
+  date?: string;
+}
+
 @Injectable()
 export class SalesService extends TenantScopedService {
   constructor(private readonly prisma: PrismaService) {
@@ -899,34 +907,88 @@ export class SalesService extends TenantScopedService {
     };
   }
 
-  async getDashboard(businessId: string, days: number) {
+  async getDashboard(businessId: string, period: DashboardPeriod) {
     this.assertTenant(businessId);
 
+    // Calendar-aligned local-day/week/month boundaries — same technique
+    // already used by Sales History's own Today/This Week/This Month
+    // filter, not a rolling "last N days" window. 'all' has no lower bound
+    // at all (rangeStart stays null, meaning "since the beginning").
+    // 'date' is the only case with an upper bound too (an exact past day),
+    // built from Y/M/D integers rather than `new Date(dateString)` — a
+    // date-only string is parsed as UTC midnight by JS and can land on the
+    // wrong local day.
     const now = new Date();
-    const rangeStart = new Date(now);
-    rangeStart.setDate(rangeStart.getDate() - (days - 1));
-    rangeStart.setHours(0, 0, 0, 0);
+    let rangeStart: Date | null = null;
+    let rangeEnd: Date | null = null;
+    let prevRangeStart: Date | null = null;
+    let prevRangeEnd: Date | null = null;
 
-    const prevRangeEnd = new Date(rangeStart);
-    const prevRangeStart = new Date(rangeStart);
-    prevRangeStart.setDate(prevRangeStart.getDate() - days);
+    if (period.key === 'today') {
+      rangeStart = new Date(now);
+      rangeStart.setHours(0, 0, 0, 0);
+      prevRangeEnd = new Date(rangeStart);
+      prevRangeStart = new Date(rangeStart);
+      prevRangeStart.setDate(prevRangeStart.getDate() - 1);
+    } else if (period.key === 'week') {
+      rangeStart = new Date(now);
+      rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay());
+      rangeStart.setHours(0, 0, 0, 0);
+      prevRangeEnd = new Date(rangeStart);
+      prevRangeStart = new Date(rangeStart);
+      prevRangeStart.setDate(prevRangeStart.getDate() - 7);
+    } else if (period.key === 'month') {
+      rangeStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      prevRangeEnd = new Date(rangeStart);
+      prevRangeStart = new Date(
+        rangeStart.getFullYear(),
+        rangeStart.getMonth() - 1,
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+    } else if (period.key === 'date') {
+      const isValid = period.date && /^\d{4}-\d{2}-\d{2}$/.test(period.date);
+      const [y, m, d] = (isValid ? period.date! : now.toISOString().slice(0, 10))
+        .split('-')
+        .map(Number);
+      rangeStart = new Date(y, m - 1, d, 0, 0, 0, 0);
+      rangeEnd = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
+      prevRangeEnd = new Date(rangeStart);
+      prevRangeStart = new Date(y, m - 1, d - 1, 0, 0, 0, 0);
+    }
+    // 'all' — rangeStart/rangeEnd/prevRangeStart/prevRangeEnd all stay null.
+
+    const dateRange: { gte?: Date; lt?: Date } | undefined =
+      rangeStart || rangeEnd
+        ? {
+            ...(rangeStart ? { gte: rangeStart } : {}),
+            ...(rangeEnd ? { lt: rangeEnd } : {}),
+          }
+        : undefined;
 
     // Archived sales stay in these figures — see getSummary() above for why.
     // Voided sales are excluded here (unlike Archive, a Void is not a
     // financially valid sale — its inventory has already been reversed).
     const rangeSales = await this.prisma.sale.findMany({
-      where: { businessId, createdAt: { gte: rangeStart }, voidedAt: null },
+      where: { businessId, createdAt: dateRange, voidedAt: null },
       include: { items: true, returns: true },
       orderBy: { createdAt: 'asc' },
     });
 
-    const prevRangeSales = await this.prisma.sale.findMany({
-      where: {
-        businessId,
-        createdAt: { gte: prevRangeStart, lt: prevRangeEnd },
-        voidedAt: null,
-      },
-    });
+    // 'all' has no meaningful "previous period" to compare against —
+    // revenueChangePct is simply left at 0 for it (see below).
+    const prevRangeSales = prevRangeStart
+      ? await this.prisma.sale.findMany({
+          where: {
+            businessId,
+            createdAt: { gte: prevRangeStart, lt: prevRangeEnd! },
+            voidedAt: null,
+          },
+        })
+      : [];
 
     const products = await this.prisma.product.findMany({
       where: { businessId, isActive: true },
@@ -1060,12 +1122,16 @@ export class SalesService extends TenantScopedService {
     );
 
     const avgSaleValue = periodSales > 0 ? periodRevenue / periodSales : 0;
+    // 'all' has no previous period to compare against at all — always 0,
+    // never the "100% increase" the formula below would otherwise imply.
     const revenueChangePct =
-      prevPeriodRevenue > 0
-        ? ((periodRevenue - prevPeriodRevenue) / prevPeriodRevenue) * 100
-        : periodRevenue > 0
-          ? 100
-          : 0;
+      period.key === 'all'
+        ? 0
+        : prevPeriodRevenue > 0
+          ? ((periodRevenue - prevPeriodRevenue) / prevPeriodRevenue) * 100
+          : periodRevenue > 0
+            ? 100
+            : 0;
 
     // Total Products = product definitions (models). Total Inventory = every
     // physical device ever recorded (any status) + current accessory stockQty —
@@ -1109,7 +1175,7 @@ export class SalesService extends TenantScopedService {
     // sales made in this period (they carry no Payment rows — they're fully
     // collected at creation instead, net of any return/void).
     const periodPayments = await this.prisma.payment.findMany({
-      where: { businessId, paidAt: { gte: rangeStart } },
+      where: { businessId, paidAt: dateRange },
     });
     const collectedFromPayments = periodPayments.reduce(
       (sum, p) => sum + Number(p.amount),
@@ -1128,7 +1194,7 @@ export class SalesService extends TenantScopedService {
     const periodCollected = collectedFromPayments + collectedFromWalkIns;
 
     const periodExpenseAgg = await this.prisma.expense.aggregate({
-      where: { businessId, date: { gte: rangeStart } },
+      where: { businessId, date: dateRange },
       _sum: { amount: true },
     });
     const periodExpenses = Number(periodExpenseAgg._sum.amount ?? 0);
@@ -1147,7 +1213,7 @@ export class SalesService extends TenantScopedService {
       await this.prisma.vendorPayment.aggregate({
         where: {
           businessId,
-          paidAt: { gte: rangeStart },
+          paidAt: dateRange,
           deductFromDashboardCash: true,
           reversedAt: null,
         },

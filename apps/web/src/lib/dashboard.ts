@@ -81,6 +81,15 @@ export interface DashboardData {
   lowStockProducts: LowStockProduct[];
 }
 
-export async function getDashboard(days: number): Promise<DashboardData> {
-  return apiClient.get<DashboardData>(`/sales/dashboard?days=${days}`);
+// Calendar-aligned period, not a rolling "last N days" window — 'date'
+// additionally requires `date` ('YYYY-MM-DD'); every other key ignores it.
+export type DashboardPeriodKey = 'today' | 'week' | 'month' | 'all' | 'date';
+
+export async function getDashboard(
+  period: DashboardPeriodKey,
+  date?: string,
+): Promise<DashboardData> {
+  const query = new URLSearchParams({ period });
+  if (period === 'date' && date) query.set('date', date);
+  return apiClient.get<DashboardData>(`/sales/dashboard?${query.toString()}`);
 }
