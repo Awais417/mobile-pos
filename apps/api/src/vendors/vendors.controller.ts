@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Body,
   Query,
   Param,
@@ -79,5 +80,13 @@ export class VendorsController {
     @Body() dto: VendorStatusDto,
   ) {
     return this.vendorsService.setStatus(businessId, id, user.userId, dto);
+  }
+
+  // Permanently deletes this vendor and every purchase/payment that belongs
+  // to it — distinct from setStatus() above, which only deactivates.
+  @Delete(':id')
+  @Roles('ADMIN')
+  remove(@TenantId() businessId: string, @Param('id') id: string) {
+    return this.vendorsService.remove(businessId, id);
   }
 }

@@ -119,6 +119,12 @@ export async function setVendorStatus(id: string, isActive: boolean): Promise<Ve
   return apiClient.patch<VendorListItem>(`/vendors/${id}/status`, { isActive });
 }
 
+// Permanently deletes this vendor and every purchase/payment that belongs
+// to it — distinct from setVendorStatus above, which only deactivates.
+export async function deleteVendor(id: string): Promise<void> {
+  await apiClient.del(`/vendors/${id}`);
+}
+
 export interface Outlet {
   id: string;
   name: string;

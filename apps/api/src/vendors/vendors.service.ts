@@ -291,6 +291,49 @@ export class VendorsService extends TenantScopedService {
     });
   }
 
+  // Permanently deletes this vendor and every record that belongs to it —
+  // distinct from setStatus() above, which only deactivates and always
+  // preserves history. Runs as one transaction so a failure at any step
+  // rolls back everything. Deletion order is FK-safe (children before
+  // parents): PurchaseItem rows, then every VendorPayment for this vendor
+  // (this vendor's "cash/ledger" entries — there is no separate ledger
+  // table), then every Purchase, then the Vendor itself. The vendor's own
+  // totals need no separate recalculation (nothing to compute — the vendor
+  // is gone); the dashboard's Available Sales Cash is always computed live
+  // from VendorPayment (see SalesService.getDashboard), so deleting these
+  // payment rows automatically reverses any deduction they made.
+  async remove(businessId: string, id: string) {
+    this.assertTenant(businessId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const vendor = await tx.vendor.findFirst({ where: { id, businessId } });
+      if (!vendor) {
+        throw new NotFoundException('Vendor not found.');
+      }
+
+      const purchases = await tx.purchase.findMany({
+        where: { vendorId: id, businessId },
+        select: { id: true },
+      });
+      const purchaseIds = purchases.map((p) => p.id);
+
+      if (purchaseIds.length > 0) {
+        await tx.purchaseItem.deleteMany({
+          where: { purchaseId: { in: purchaseIds } },
+        });
+      }
+      await tx.vendorPayment.deleteMany({ where: { vendorId: id, businessId } });
+      if (purchaseIds.length > 0) {
+        await tx.purchase.deleteMany({
+          where: { id: { in: purchaseIds }, businessId },
+        });
+      }
+      await tx.vendor.delete({ where: { id } });
+
+      return { deleted: true };
+    });
+  }
+
   // Read-only outlet lookup for the branch selector on New Purchase — this
   // app has no outlet management UI yet, so it simply lists whatever Outlet
   // rows already exist for the business (may be empty).

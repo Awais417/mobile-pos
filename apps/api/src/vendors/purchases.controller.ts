@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
   Query,
   Param,
@@ -89,5 +90,18 @@ export class PurchasesController {
     @Body() dto: CreateVendorPaymentDto,
   ) {
     return this.purchasesService.addPayment(businessId, user, id, dto);
+  }
+
+  // Hard-deletes this purchase bill entirely — blocked if any vendor payment
+  // is linked to it (reverse/delete those first). Distinct from cancel()
+  // above, which only marks it CANCELLED and keeps the row.
+  @Delete(':id')
+  @Roles(...MANAGE_ROLES)
+  remove(
+    @TenantId() businessId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.purchasesService.remove(businessId, user, id);
   }
 }

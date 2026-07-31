@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState, FormEvent } from 'react';
-import { getStaff, createStaff, Staff } from '@/lib/staff';
+import { getStaff, createStaff, deleteStaff, Staff } from '@/lib/staff';
 import { Role } from '@/lib/auth';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useToast } from '@/components/ui/Toast';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -10,9 +11,18 @@ import { TableSkeleton } from '@/components/ui/Skeletons';
 import { StatusBadge, activeTone } from '@/components/ui/StatusBadge';
 import { FormField } from '@/components/ui/FormField';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ActionMenu } from '@/components/ui/ActionMenu';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/styles';
-import { AlertTriangleIcon, InboxIcon, Loader2Icon, PlusIcon, UsersIcon } from '@/components/icons';
+import {
+  AlertTriangleIcon,
+  InboxIcon,
+  Loader2Icon,
+  PlusIcon,
+  UsersIcon,
+  Trash2Icon,
+} from '@/components/icons';
 
 const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Administrator',
@@ -29,6 +39,7 @@ function initials(name: string | null | undefined): string {
 }
 
 export default function StaffPage() {
+  const { user: currentUser } = useCurrentUser();
   const { showToast } = useToast();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,15 +48,24 @@ export default function StaffPage() {
   const [showAddModal, setShowAddModal] = useState(false);
 
   const [search, setSearch] = useState('');
+  // Deactivated staff are hidden by default; toggling this re-fetches
+  // including them, purely for historical reference.
+  const [showInactive, setShowInactive] = useState(false);
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'SALESMAN' | 'ACCOUNTANT' | 'BRANCH_MANAGER'>('SALESMAN');
 
+  // Delete Staff — never allowed against your own account. Backend
+  // deactivates instead of deleting when the staff member has history.
+  const [deleteTarget, setDeleteTarget] = useState<Staff | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   async function loadStaff() {
     try {
-      const data = await getStaff();
+      const data = await getStaff(showInactive);
       setStaff(data);
     } catch {
       setError('Could not load staff.');
@@ -55,8 +75,34 @@ export default function StaffPage() {
   }
 
   useEffect(() => {
+    setLoading(true);
     loadStaff();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInactive]);
+
+  function openDeleteConfirm(s: Staff) {
+    setDeleteTarget(s);
+    setDeleteError(null);
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteStaff(deleteTarget.id);
+      showToast(
+        'success',
+        'Staff member removed. Any historical sales or payments are preserved.',
+      );
+      setDeleteTarget(null);
+      await loadStaff();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not remove this staff member.');
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   function openAddModal() {
     setFullName('');
@@ -116,8 +162,21 @@ export default function StaffPage() {
           </div>
         )}
 
-        <div className="mb-4">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search staff..." />
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="flex-1">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search staff..." />
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowInactive((v) => !v)}
+            className={`rounded-xl px-3.5 py-1.5 text-xs font-medium transition ${
+              showInactive
+                ? 'bg-primary text-white shadow-sm'
+                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {showInactive ? 'Hide Disabled Staff' : 'Show Disabled Staff'}
+          </button>
         </div>
 
         {/* List */}
@@ -150,7 +209,9 @@ export default function StaffPage() {
                     <th className="px-4 py-3 font-medium">Staff Member</th>
                     <th className="px-4 py-3 font-medium">Contact</th>
                     <th className="px-4 py-3 font-medium">Role</th>
+                    <th className="px-4 py-3 font-medium">Branch</th>
                     <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -171,10 +232,25 @@ export default function StaffPage() {
                           {ROLE_LABELS[s.role] ?? s.role}
                         </StatusBadge>
                       </td>
+                      <td className="px-4 py-3 text-slate-500">{s.outletName ?? '—'}</td>
                       <td className="px-4 py-3">
                         <StatusBadge tone={activeTone(s.isActive)} dot>
                           {s.isActive ? 'Active' : 'Disabled'}
                         </StatusBadge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {s.isActive && s.id !== currentUser?.userId && (
+                          <ActionMenu
+                            actions={[
+                              {
+                                label: 'Delete',
+                                icon: Trash2Icon,
+                                variant: 'delete',
+                                onClick: () => openDeleteConfirm(s),
+                              },
+                            ]}
+                          />
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -257,6 +333,44 @@ export default function StaffPage() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* Delete Staff confirmation — never allowed against your own account.
+          Backend deactivates instead of deleting when the staff member has
+          sales/payment/purchase history; their records are never removed. */}
+      {deleteTarget && (
+        <ConfirmDialog
+          title={`Delete ${deleteTarget.fullName}?`}
+          description="If this staff member has any sales, payments, or purchase history, their account will be safely disabled instead of deleted — that history is never removed. A disabled account can no longer log in."
+          confirmLabel={deleting ? 'Deleting...' : 'Delete Staff'}
+          variant="danger"
+          loading={deleting}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        >
+          <div className="space-y-1 rounded-xl bg-slate-50 p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Name</span>
+              <span className="font-medium text-slate-900">{deleteTarget.fullName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Role</span>
+              <span className="font-medium text-slate-900">
+                {ROLE_LABELS[deleteTarget.role] ?? deleteTarget.role}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Branch</span>
+              <span className="font-medium text-slate-900">{deleteTarget.outletName ?? '—'}</span>
+            </div>
+          </div>
+          {deleteError && (
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+              {deleteError}
+            </div>
+          )}
+        </ConfirmDialog>
       )}
     </div>
   );

@@ -124,6 +124,13 @@ export async function cancelPurchase(id: string, reason?: string): Promise<Purch
   return apiClient.post<PurchaseDetail>(`/purchases/${id}/cancel`, reason ? { reason } : {});
 }
 
+// Hard-deletes this purchase bill entirely — blocked (400) if any vendor
+// payment is linked to it. Distinct from cancelPurchase above, which only
+// marks it CANCELLED and keeps the row.
+export async function deletePurchase(id: string): Promise<void> {
+  await apiClient.del(`/purchases/${id}`);
+}
+
 export interface AddPurchasePaymentInput {
   amount: number;
   method: PaymentMethod;

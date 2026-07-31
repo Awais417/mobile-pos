@@ -7,6 +7,7 @@ import {
   createVendor,
   updateVendor,
   setVendorStatus,
+  deleteVendor,
   VendorListItem,
   VendorDetail,
 } from '@/lib/vendors';
@@ -45,6 +46,7 @@ import {
   InboxIcon,
   PencilIcon,
   PackageIcon,
+  Trash2Icon,
 } from '@/components/icons';
 
 type Tab = 'overview' | 'purchases' | 'payments';
@@ -94,6 +96,12 @@ export default function VendorsPage() {
 
   const [statusTarget, setStatusTarget] = useState<VendorListItem | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+
+  // Delete Vendor — permanent, cascades to every purchase/payment belonging
+  // to this vendor. Distinct from Deactivate/Reactivate above.
+  const [hardDeleteTarget, setHardDeleteTarget] = useState<VendorListItem | null>(null);
+  const [hardDeleting, setHardDeleting] = useState(false);
+  const [hardDeleteError, setHardDeleteError] = useState<string | null>(null);
 
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<VendorDetail | null>(null);
@@ -199,6 +207,23 @@ export default function VendorsPage() {
       showToast('error', err instanceof Error ? err.message : 'Could not update vendor status.');
     } finally {
       setStatusSaving(false);
+    }
+  }
+
+  async function handleConfirmHardDelete() {
+    if (!hardDeleteTarget) return;
+    setHardDeleting(true);
+    setHardDeleteError(null);
+    try {
+      await deleteVendor(hardDeleteTarget.id);
+      showToast('success', 'Vendor and all its purchases/payments deleted.');
+      setHardDeleteTarget(null);
+      if (detailId === hardDeleteTarget.id) closeDetails();
+      await loadVendors();
+    } catch (err) {
+      setHardDeleteError(err instanceof Error ? err.message : 'Could not delete this vendor.');
+    } finally {
+      setHardDeleting(false);
     }
   }
 
@@ -365,6 +390,15 @@ export default function VendorsPage() {
                                     variant: 'neutral' as const,
                                     onClick: () => setStatusTarget(v),
                                   },
+                                  {
+                                    label: 'Delete',
+                                    icon: Trash2Icon,
+                                    variant: 'delete' as const,
+                                    onClick: () => {
+                                      setHardDeleteTarget(v);
+                                      setHardDeleteError(null);
+                                    },
+                                  },
                                 ]
                               : []),
                           ]}
@@ -429,6 +463,37 @@ export default function VendorsPage() {
           onConfirm={handleConfirmStatus}
           onCancel={() => setStatusTarget(null)}
         />
+      )}
+
+      {/* Delete Vendor confirmation — permanent. Cascades to every purchase
+          bill, purchase item, and vendor payment belonging to this vendor. */}
+      {hardDeleteTarget && (
+        <ConfirmDialog
+          title={`Delete ${hardDeleteTarget.businessName}?`}
+          description="This permanently deletes this vendor along with every purchase bill, item, and payment linked to them. This cannot be undone."
+          confirmLabel={hardDeleting ? 'Deleting...' : 'Delete Vendor'}
+          variant="danger"
+          loading={hardDeleting}
+          onConfirm={handleConfirmHardDelete}
+          onCancel={() => setHardDeleteTarget(null)}
+        >
+          <div className="space-y-1 rounded-xl bg-slate-50 p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Purchase Bills</span>
+              <span className="font-medium text-slate-900">{formatNumber(hardDeleteTarget.purchaseBillsCount)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Remaining Payable</span>
+              <span className="font-medium text-slate-900">{formatCurrency(hardDeleteTarget.remainingPayable)}</span>
+            </div>
+          </div>
+          {hardDeleteError && (
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+              {hardDeleteError}
+            </div>
+          )}
+        </ConfirmDialog>
       )}
 
       {/* Vendor Details drawer */}

@@ -6,6 +6,7 @@ import {
   getPurchase,
   createPurchase,
   cancelPurchase,
+  deletePurchase,
   addPurchasePayment,
   PurchaseListItem,
   PurchaseDetail,
@@ -114,6 +115,12 @@ export default function PurchasesPage() {
   const [cancelTarget, setCancelTarget] = useState<PurchaseDetail | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+
+  // Delete Purchase Bill — blocked (backend) if any vendor payment is
+  // linked to it. Distinct from Cancel, which only marks it CANCELLED.
+  const [deleteTarget, setDeleteTarget] = useState<PurchaseListItem | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const [payTarget, setPayTarget] = useState<PurchaseDetail | null>(null);
   const [payAmount, setPayAmount] = useState('0');
@@ -294,6 +301,28 @@ export default function PurchasesPage() {
     }
   }
 
+  function openDeleteConfirm(p: PurchaseListItem) {
+    setDeleteTarget(p);
+    setDeleteError(null);
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deletePurchase(deleteTarget.id);
+      showToast('success', 'Purchase bill deleted.');
+      setDeleteTarget(null);
+      if (detailId === deleteTarget.id) closeDetails();
+      await loadPurchases();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not delete this purchase bill.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function openPayModal(p: PurchaseDetail) {
     setPayTarget(p);
     setPayAmount(String(Math.round(Number(p.remainingAmount))));
@@ -446,7 +475,21 @@ export default function PurchasesPage() {
                         {p.paymentStatus && <StatusBadge tone={paymentStatusTone(p.paymentStatus)}>{p.paymentStatus}</StatusBadge>}
                       </td>
                       <td className="px-4 py-3">
-                        <ActionMenu actions={[{ label: 'View Details', icon: EyeIcon, variant: 'view', onClick: () => openDetails(p.id) }]} />
+                        <ActionMenu
+                          actions={[
+                            { label: 'View Details', icon: EyeIcon, variant: 'view', onClick: () => openDetails(p.id) },
+                            ...(canManage
+                              ? [
+                                  {
+                                    label: 'Delete',
+                                    icon: Trash2Icon,
+                                    variant: 'delete' as const,
+                                    onClick: () => openDeleteConfirm(p),
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -787,6 +830,37 @@ export default function PurchasesPage() {
           <FormField label="Reason" helper="Optional">
             <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows={2} className={inputClass} />
           </FormField>
+        </ConfirmDialog>
+      )}
+
+      {/* Delete Purchase Bill confirmation — blocked (backend) if any vendor
+          payment is linked to this bill. */}
+      {deleteTarget && (
+        <ConfirmDialog
+          title={`Delete Purchase #${deleteTarget.purchaseNumber}?`}
+          description="This permanently removes this purchase bill. This cannot be undone."
+          confirmLabel={deleting ? 'Deleting...' : 'Delete Purchase Bill'}
+          variant="danger"
+          loading={deleting}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        >
+          <div className="space-y-1 rounded-xl bg-slate-50 p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-500">Vendor</span>
+              <span className="font-medium text-slate-900">{deleteTarget.vendorName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500">Total Amount</span>
+              <span className="font-medium text-slate-900">{formatCurrency(deleteTarget.totalAmount)}</span>
+            </div>
+          </div>
+          {deleteError && (
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+              {deleteError}
+            </div>
+          )}
         </ConfirmDialog>
       )}
 

@@ -433,4 +433,35 @@ export class PurchasesService extends TenantScopedService {
       };
     });
   }
+
+  // Hard-deletes a purchase bill entirely — distinct from cancel() above,
+  // which only marks it CANCELLED and preserves the row. Cascades, inside
+  // one transaction, to this bill's own PurchaseItem rows and ONLY the
+  // vendor payments linked to this specific purchase (never a different
+  // bill's payments, even for the same vendor). The vendor's totals and the
+  // dashboard's Available Sales Cash are always computed live from
+  // Purchase/VendorPayment (see VendorsService / SalesService.getDashboard),
+  // so both reflect this deletion automatically with no separate
+  // recalculation step — including reversing any deducted amount.
+  async remove(businessId: string, user: AuthenticatedUser, id: string) {
+    this.assertTenant(businessId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const purchase = await tx.purchase.findFirst({
+        where: { id, businessId },
+      });
+      if (!purchase) {
+        throw new NotFoundException('Purchase not found.');
+      }
+      this.assertBranchAccess(user, purchase);
+
+      // Order matters: items and payments (children) before the purchase
+      // (parent) they reference, so nothing is ever left dangling.
+      await tx.purchaseItem.deleteMany({ where: { purchaseId: id } });
+      await tx.vendorPayment.deleteMany({ where: { purchaseId: id, businessId } });
+      await tx.purchase.delete({ where: { id } });
+
+      return { deleted: true };
+    });
+  }
 }
