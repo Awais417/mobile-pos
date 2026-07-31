@@ -47,8 +47,8 @@ export class SalesController {
 
   // Calendar-aligned Today/This Week/This Month/All Time, plus an exact
   // calendar day — not a rolling "last N days" window (see
-  // SalesService.getDashboard). Defaults to This Month for an unrecognized
-  // or missing period.
+  // SalesService.getDashboard). Defaults to Today for an unrecognized or
+  // missing period.
   @Get('dashboard')
   @Roles('ADMIN')
   getDashboard(
@@ -59,7 +59,7 @@ export class SalesController {
     const validKeys: DashboardPeriod['key'][] = ['today', 'week', 'month', 'all', 'date'];
     const key = validKeys.includes(period as DashboardPeriod['key'])
       ? (period as DashboardPeriod['key'])
-      : 'month';
+      : 'today';
     return this.salesService.getDashboard(businessId, { key, date });
   }
 

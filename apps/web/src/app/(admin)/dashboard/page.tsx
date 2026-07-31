@@ -177,8 +177,8 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
-  // This Month is the default dashboard period.
-  const [period, setPeriod] = useState<DashboardPeriodKey>('month');
+  // Today is the default dashboard period.
+  const [period, setPeriod] = useState<DashboardPeriodKey>('today');
   const [specificDate, setSpecificDate] = useState(todayIsoDate());
 
   // Outstanding Receivables — a live, current balance (not scoped to the

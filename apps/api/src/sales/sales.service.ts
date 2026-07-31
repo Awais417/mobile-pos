@@ -11,14 +11,14 @@ import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { VoidSaleDto } from './dto/void-sale.dto';
 import { CompleteRefundDto } from './dto/complete-refund.dto';
-
-// Dashboard period selector — calendar-aligned (not a rolling "last N
-// days" window). 'date' additionally carries the selected day as
-// 'YYYY-MM-DD'; every other key ignores it.
-export interface DashboardPeriod {
-  key: 'today' | 'week' | 'month' | 'all' | 'date';
-  date?: string;
-}
+import {
+  computeDashboardDateRange,
+  DashboardPeriod,
+} from './dashboard-date-range.util';
+// Re-exported so existing callers (SalesController) don't need an extra
+// import path — the type itself now lives with the date-range logic it
+// describes, avoiding two sources of truth for what a "period" is.
+export { DashboardPeriod } from './dashboard-date-range.util';
 
 @Injectable()
 export class SalesService extends TenantScopedService {
@@ -910,56 +910,12 @@ export class SalesService extends TenantScopedService {
   async getDashboard(businessId: string, period: DashboardPeriod) {
     this.assertTenant(businessId);
 
-    // Calendar-aligned local-day/week/month boundaries — same technique
-    // already used by Sales History's own Today/This Week/This Month
-    // filter, not a rolling "last N days" window. 'all' has no lower bound
-    // at all (rangeStart stays null, meaning "since the beginning").
-    // 'date' is the only case with an upper bound too (an exact past day),
-    // built from Y/M/D integers rather than `new Date(dateString)` — a
-    // date-only string is parsed as UTC midnight by JS and can land on the
-    // wrong local day.
-    const now = new Date();
-    let rangeStart: Date | null = null;
-    let rangeEnd: Date | null = null;
-    let prevRangeStart: Date | null = null;
-    let prevRangeEnd: Date | null = null;
-
-    if (period.key === 'today') {
-      rangeStart = new Date(now);
-      rangeStart.setHours(0, 0, 0, 0);
-      prevRangeEnd = new Date(rangeStart);
-      prevRangeStart = new Date(rangeStart);
-      prevRangeStart.setDate(prevRangeStart.getDate() - 1);
-    } else if (period.key === 'week') {
-      rangeStart = new Date(now);
-      rangeStart.setDate(rangeStart.getDate() - rangeStart.getDay());
-      rangeStart.setHours(0, 0, 0, 0);
-      prevRangeEnd = new Date(rangeStart);
-      prevRangeStart = new Date(rangeStart);
-      prevRangeStart.setDate(prevRangeStart.getDate() - 7);
-    } else if (period.key === 'month') {
-      rangeStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      prevRangeEnd = new Date(rangeStart);
-      prevRangeStart = new Date(
-        rangeStart.getFullYear(),
-        rangeStart.getMonth() - 1,
-        1,
-        0,
-        0,
-        0,
-        0,
-      );
-    } else if (period.key === 'date') {
-      const isValid = period.date && /^\d{4}-\d{2}-\d{2}$/.test(period.date);
-      const [y, m, d] = (isValid ? period.date! : now.toISOString().slice(0, 10))
-        .split('-')
-        .map(Number);
-      rangeStart = new Date(y, m - 1, d, 0, 0, 0, 0);
-      rangeEnd = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
-      prevRangeEnd = new Date(rangeStart);
-      prevRangeStart = new Date(y, m - 1, d - 1, 0, 0, 0, 0);
-    }
-    // 'all' — rangeStart/rangeEnd/prevRangeStart/prevRangeEnd all stay null.
+    // Calendar-aligned, shop-timezone-aware boundaries — see
+    // dashboard-date-range.util.ts for the single source of truth on how
+    // Today/This Week (Monday-start)/This Month/Specific Date/All Time are
+    // computed. Never the server process's own local/UTC clock.
+    const { rangeStart, rangeEnd, prevRangeStart, prevRangeEnd } =
+      computeDashboardDateRange(period);
 
     const dateRange: { gte?: Date; lt?: Date } | undefined =
       rangeStart || rangeEnd
