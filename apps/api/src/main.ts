@@ -5,14 +5,12 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/app-config.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
-
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-  // HELMET — har response mein security headers lagata hai (XSS, clickjacking se bachav).
-  // Sabse pehle lagate hain taake HAR response ismein se guzre.
   app.use(helmet());
 
+  // Allow requests from all origins
   app.enableCors({
     origin: true,
     credentials: true,
@@ -42,6 +40,7 @@ async function bootstrap(): Promise<void> {
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
+
   SwaggerModule.setup('api/docs', app, document, {
     swaggerOptions: { persistAuthorization: true },
   });
