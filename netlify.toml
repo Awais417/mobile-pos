@@ -1,0 +1,24 @@
+[build]
+  command = "cd apps/api && npm install && npm run build && cd ../web && npm install && npm run build"
+  publish = "apps/web/.next"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NODE_ENV = "production"
+
+# Route all /api/* requests to the NestJS serverless function
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api"
+  status = 200
+  force = true
+
+# SPA fallback — serve Next.js for everything else
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
