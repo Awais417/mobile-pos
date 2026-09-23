@@ -1,7 +1,7 @@
 [build]
-  command = "cd apps/api && npm install --include=dev && npm run build && cd ../web && npm install --include=dev && npm run build"
+  command = "cd apps/api && npm install --include=dev && npx prisma generate && npm run build && cd ../web && npm install --include=dev && npm run build"
   publish = "apps/web/.next"
-  functions = "netlify/functions"
+  functions = "apps/api/netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"
